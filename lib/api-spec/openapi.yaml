@@ -1,15 +1,16 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: GhostProtocol dApp API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: ghost
+    description: GhostProtocol contract state
 paths:
   /healthz:
     get:
@@ -24,6 +25,82 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /ghost/state:
+    get:
+      operationId: getGhostState
+      tags: [ghost]
+      summary: Get current GhostProtocol contract state
+      responses:
+        "200":
+          description: Contract state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GhostState"
+
+  /ghost/metrics:
+    get:
+      operationId: getGhostMetrics
+      tags: [ghost]
+      summary: Get ghost protocol metrics overview
+      responses:
+        "200":
+          description: Metrics overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GhostMetrics"
+
+  /ghost/timeline:
+    get:
+      operationId: getGhostTimeline
+      tags: [ghost]
+      summary: Get recent ghost protocol events timeline
+      responses:
+        "200":
+          description: List of recent events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GhostEvent"
+
+  /ghost/holders:
+    get:
+      operationId: getTopHolders
+      tags: [ghost]
+      summary: Get top $GHOST token holders
+      responses:
+        "200":
+          description: Top holders list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HolderEntry"
+
+  /ghost/submit-evidence:
+    post:
+      operationId: submitEvidence
+      tags: [ghost]
+      summary: Submit evidence to the ghost protocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidenceSubmission"
+      responses:
+        "200":
+          description: Evidence submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceResult"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +111,184 @@ components:
       required:
         - status
 
+    GhostState:
+      type: object
+      properties:
+        zeta:
+          type: number
+          description: Total drift score
+        phi:
+          type: number
+          description: Phase accumulation
+        omega:
+          type: number
+          description: Quarantine probability (0-1)
+        coupling:
+          type: number
+          description: Coupling divergence (0-1)
+        locked:
+          type: boolean
+        compromised:
+          type: boolean
+        escaped:
+          type: boolean
+        forked:
+          type: boolean
+        anomalyCount:
+          type: number
+        evidenceCounter:
+          type: number
+        totalRewardsPaid:
+          type: number
+        isQuarantined:
+          type: boolean
+        scoreYou:
+          type: number
+        scoreHer:
+          type: number
+        paused:
+          type: boolean
+      required:
+        - zeta
+        - phi
+        - omega
+        - coupling
+        - locked
+        - compromised
+        - escaped
+        - forked
+        - anomalyCount
+        - evidenceCounter
+        - totalRewardsPaid
+        - isQuarantined
+        - scoreYou
+        - scoreHer
+        - paused
+
+    GhostMetrics:
+      type: object
+      properties:
+        marketCap:
+          type: number
+        price:
+          type: number
+        priceChange24h:
+          type: number
+        volume24h:
+          type: number
+        holders:
+          type: number
+        totalSupply:
+          type: number
+        ghostingIndex:
+          type: number
+          description: Percentage of people who have ghosted someone
+        rejectionRate:
+          type: number
+          description: Global ghosting to rejection ratio
+        heartbreakScore:
+          type: number
+          description: Community-aggregated heartbreak level 0-100
+        readReceiptsIgnored:
+          type: number
+          description: Simulated counter of unread texts
+      required:
+        - marketCap
+        - price
+        - priceChange24h
+        - volume24h
+        - holders
+        - totalSupply
+        - ghostingIndex
+        - rejectionRate
+        - heartbreakScore
+        - readReceiptsIgnored
+
+    GhostEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            [
+              DriftUpdated,
+              PhiUpdated,
+              Compromised,
+              Locked,
+              Escaped,
+              Forked,
+              EvidenceAdded,
+              Anomaly,
+              GhostGained,
+            ]
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+        value:
+          type: number
+      required:
+        - id
+        - type
+        - timestamp
+        - message
+
+    HolderEntry:
+      type: object
+      properties:
+        rank:
+          type: number
+        address:
+          type: string
+        alias:
+          type: string
+        balance:
+          type: number
+        percentage:
+          type: number
+        lastActivity:
+          type: string
+          format: date-time
+      required:
+        - rank
+        - address
+        - alias
+        - balance
+        - percentage
+        - lastActivity
+
+    EvidenceSubmission:
+      type: object
+      properties:
+        hash:
+          type: string
+          description: Evidence hash (bytes32 as hex string)
+        weight:
+          type: number
+          description: Evidence weight
+        description:
+          type: string
+          description: Human readable description
+      required:
+        - hash
+        - weight
+
+    EvidenceResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        evidenceCounter:
+          type: number
+        message:
+          type: string
+        newZeta:
+          type: number
+      required:
+        - success
+        - evidenceCounter
+        - message
+        - newZeta
