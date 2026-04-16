@@ -1,16 +1,90 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract GHOSTED is ERC20 {
-    constructor(address initialOwner) ERC20("Ghosted", "GHOSTED") {
-        _mint(initialOwner, 1_000_000_000 * 10**18); // 1 billion total supply
+// ------------------------------------------------------------------
+// GHOSTED ERC20 TOKEN WITH CREDIBILITY SCORING
+// ------------------------------------------------------------------
+contract GHOSTED is ERC20, ERC20Burnable {
+    mapping(address => uint256) public credibilityScore;
+    mapping(address => uint256) public lastTransactionTime;
+    mapping(address => uint256) public tokensBurned;
+    mapping(address => uint256) public tokensSold;
+    mapping(address => uint256) public holdingStartTime;
+
+    address public immutable protocol;
+
+    uint256 public constant MIN_HOLDING_PERIOD = 7 days;
+    uint256 public constant CREDIBILITY_DECAY_RATE = 1e17;
+
+    event CredibilityUpdated(address indexed holder, uint256 newScore, string reason);
+
+    constructor(address initialOwner, address _protocol) ERC20("Ghosted", "GHOSTED") {
+        _mint(initialOwner, 1_000_000_000 * 10**18);
+        protocol = _protocol;
+    }
+
+    modifier onlyProtocol() {
+        require(msg.sender == protocol, "Only GhostProtocol can call");
+        _;
+    }
+
+    function updateCredibilityScore(address holder, uint256 newScore) external onlyProtocol {
+        credibilityScore[holder] = newScore;
+        emit CredibilityUpdated(holder, newScore, "Protocol update");
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        _updateCredibilityOnTransfer(msg.sender, amount, false);
+        bool result = super.transfer(to, amount);
+        if (to != address(0)) _updateCredibilityOnReceive(to);
+        return result;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        _updateCredibilityOnTransfer(from, amount, true);
+        bool result = super.transferFrom(from, to, amount);
+        if (to != address(0)) _updateCredibilityOnReceive(to);
+        return result;
+    }
+
+    function _updateCredibilityOnTransfer(address from, uint256 amount, bool) internal {
+        if (from == address(0)) return;
+        uint256 credibilityLoss = (amount * 10**18) / totalSupply();
+        if (credibilityScore[from] > credibilityLoss) credibilityScore[from] -= credibilityLoss;
+        else credibilityScore[from] = 0;
+        tokensSold[from] += amount;
+        emit CredibilityUpdated(from, credibilityScore[from], "Sell penalty applied");
+    }
+
+    function _updateCredibilityOnReceive(address to) internal {
+        if (to == address(0)) return;
+        if (holdingStartTime[to] == 0) holdingStartTime[to] = block.timestamp;
+        uint256 holdingDuration = block.timestamp - holdingStartTime[to];
+        if (holdingDuration >= MIN_HOLDING_PERIOD) {
+            uint256 credibilityGain = (balanceOf(to) * holdingDuration) / (MIN_HOLDING_PERIOD * 1 days);
+            credibilityScore[to] += credibilityGain;
+            emit CredibilityUpdated(to, credibilityScore[to], "Loyalty bonus");
+        }
+    }
+
+    function burn(uint256 amount) public override {
+        super.burn(amount);
+        tokensBurned[msg.sender] += amount;
+        uint256 credibilityBonus = (amount * 5 * 10**18) / totalSupply();
+        credibilityScore[msg.sender] += credibilityBonus;
+        emit CredibilityUpdated(msg.sender, credibilityScore[msg.sender], "Burn sacrifice bonus");
     }
 }
 
-contract GhostProtocol {
+// ------------------------------------------------------------------
+// GHOST PROTOCOL (MAIN CONTRACT) with VOTING & REENTRANCY GUARD
+// ------------------------------------------------------------------
+contract GhostProtocol is ReentrancyGuard {
     // ------------------------------------------------------------------
     // CUSTOM ERRORS
     // ------------------------------------------------------------------
@@ -22,37 +96,46 @@ contract GhostProtocol {
     error InsufficientBalance();
     error TransferFailed();
     error Paused();
-    error FutureAction();
     error InvalidVRFProof();
     error VRFAlreadyClaimed();
-    error EvidenceChainBroken();
+    error RewardCapExceeded();
+    error InsufficientFee();
+    error GhostingReceiptExists();
+    error InsufficientAllowance();
+    error VotingNotActive();
+    error AlreadyVoted();
+    error ProposalNotFound();
+    error NotEnoughVotingPower();
 
     // ------------------------------------------------------------------
     // CONSTANTS
     // ------------------------------------------------------------------
     uint256 public constant SCALE = 1e18;
     uint256 public constant PHI_THRESHOLD = 1e18;
-    uint256 public constant OMEGA_THRESHOLD = 0.5e18;
-    uint256 public constant TAU_MAX = 1 days;
     uint256 public constant DENIAL_THRESHOLD = 10;
     uint256 public constant ORACLE_DELAY = 1 hours;
     uint256 public constant MAX_DEBT = 1e36;
     uint256 public constant MAX_REWARD = 100 ether;
+    uint256 public constant MAX_GHOSTED_PER_SUBMISSION = 100_000 * 10**18;
+    uint256 public constant GHOSTING_RECEIPT_FEE = 0.01 ether;
+    uint256 public constant TREASURY_SPLIT_BASIS = 3000; // 30%
+    uint256 public constant BPS_DENOMINATOR = 10000;
+    uint256 public constant MIN_STAKE_FOR_VERIFICATION = 10_000 * 10**18;
+    uint256 public constant MIN_VOTING_POWER = 1000 * 10**18; // 1,000 GHOSTED tokens to vote
 
-    // Default rewards
+    // Milestone rewards (votable)
     uint256 public lockReward = 1 ether;
     uint256 public compromiseReward = 5 ether;
     uint256 public escapeReward = 2 ether;
     uint256 public forkReward = 10 ether;
 
-    // VRF + Merkle constants from the FULL JSON (verifiable subset)
+    // VRF constants
     bytes32 public constant VRF_OUTPUT = 0xc7e79260041d87c9bb0811faef24d75b74b898f41cba7f37118f617288c65ef594475c4fa0f9182f1fdef23bc6939d9934ae138fc0fc71d1b21503f2ef3750eb;
     bytes32 public constant VRF_PUBLIC_KEY = 0xefbf8bccd60050aea23b0560589bfd8dd1b55f8ffe3e52e5f6017077ca152484;
     bytes32 public constant MERKLE_ROOT = 0xc0bf4602062643725c8ada560c71ab6a897bc17abf0ee1d76cd85ab681aafa6e;
-    bytes32 public constant TRAIT_CFG_HASH = 0xe630a286d4f48332991a2bc7ee9d4988463fc635552b6a499f57120af29bea3a;
     uint256 public constant VRF_TOKEN_ID = 70;
     string public constant COLLECTION_ID = "Ghosted Memories";
-    string public constant HISTORIC_STORY = "Early Bitcoin Exchange Era - Block 91812, July 2010. First real market price discovery. Mt. Gox launch. 500 BTC UTXO. LEGENDARY - First Bitcoin transaction.";
+    string public constant HISTORIC_STORY = "Early Bitcoin Exchange Era - Block 91812, July 2010. Mt. Gox launch. LEGENDARY - First Bitcoin transaction.";
 
     // ------------------------------------------------------------------
     // ACCESS CONTROL
@@ -63,7 +146,6 @@ contract GhostProtocol {
     address public immutable ghostTreasury;
     bool public paused;
 
-    // Memecoin reward token
     GHOSTED public immutable ghostedToken;
 
     modifier onlyOracle() {
@@ -105,14 +187,20 @@ contract GhostProtocol {
     uint256 public divergence;
     uint256 public overlap;
 
-    uint256 public anomalyCount;
     uint256 public evidenceCounter;
+    uint256 public truthAssertionCount;
+
+    // Revenue tracking
+    uint256 public totalRevenueCollected;
+    uint256 public totalTreasuryDistributed;
 
     struct Evidence {
         uint256 timestamp;
         uint256 weight;
         bool proxyFlagged;
         uint256 debtImpact;
+        bytes32 descriptionHash;
+        bool isRecording;
     }
     mapping(bytes32 => Evidence) public evidenceLog;
 
@@ -123,40 +211,135 @@ contract GhostProtocol {
     bool public escaped;
     bool public forked;
 
-    // Reward tracking
     bool private _paidLock;
     bool private _paidCompromise;
     bool private _paidEscape;
     bool private _paidFork;
     uint256 public totalRewardsPaid;
 
-    // VRF claim tracking
     mapping(uint256 => bool) public vrfClaimed;
 
     // ------------------------------------------------------------------
-    // EVENTS
+    // CREDIBILITY & METADATA STAKING
     // ------------------------------------------------------------------
-    event DriftUpdated(uint256 zeta);
-    event PhiUpdated(uint256 phi);
-    event Compromised();
-    event Locked(uint256 zetaLock);
-    event Escaped();
-    event Forked();
-    event EvidenceAdded(bytes32 indexed hash, bool proxyFlagged, uint256 debtImpact);
-    event Anomaly(uint256 count);
-    event DebtAccumulated(uint256 amount, string reason);
-    event WaveSynchronized(uint256 newOverlap, uint256 debtReduced);
-    event TruthAsserted(uint256 evidenceCount, uint256 debtReduced);
-    event VRFVerified(uint256 tokenId, address claimant, uint256 ghostedReward, string historicNote);
-    event OracleTransferInitiated(address indexed newOracle);
-    event OracleTransferred(address indexed oldOracle, address indexed newOracle);
-    event RhoUpdated(uint256 newRho);
-    event SigmaUpdated(uint256 newSigma);
-    event ScoresUpdated(uint256 scoreYou, uint256 scoreHer);
-    event GhostGained(string reason, uint256 amount);
-    event RewardAmountUpdated(string rewardType, uint256 newAmount);
-    event Paused();
-    event Unpaused();
+    struct CredibilityMetadata {
+        string metadataURI;
+        uint256 stakeAmount;
+        uint256 timestamp;
+        uint256 proofValue;
+        bool isActive;
+        string dramaType;
+    }
+
+    struct HolderProfile {
+        uint256 totalStaked;
+        uint256 totalEarned;
+        uint256 credibilityMultiplier;
+        uint256 lastClaimTime;
+        uint256 dramaCount;
+        bool isVerifiedHuman;
+        string ghostName;
+    }
+
+    mapping(address => CredibilityMetadata[]) public userMetadata;
+    mapping(address => HolderProfile) public holderProfiles;
+    uint256 public nextPositionId;
+
+    // ------------------------------------------------------------------
+    // VOTING SYSTEM (Minimal, 1k GHOSTED to vote)
+    // ------------------------------------------------------------------
+    enum ProposalType { AdjustLockReward, AdjustCompromiseReward, AdjustEscapeReward, AdjustForkReward, AdjustReceiptFee }
+
+    struct Proposal {
+        ProposalType propType;
+        uint256 newValue;
+        uint256 startBlock;
+        uint256 endBlock;
+        uint256 yesVotes;
+        uint256 noVotes;
+        bool executed;
+        mapping(address => bool) hasVoted;
+    }
+
+    uint256 public proposalCounter;
+    mapping(uint256 => Proposal) public proposals;
+
+    event ProposalCreated(uint256 indexed proposalId, ProposalType propType, uint256 newValue, uint256 endBlock);
+    event VoteCast(uint256 indexed proposalId, address voter, bool support, uint256 votingPower);
+    event ProposalExecuted(uint256 indexed proposalId, bool approved);
+
+    modifier validProposal(uint256 proposalId) {
+        if (proposalId == 0 || proposalId > proposalCounter) revert ProposalNotFound();
+        _;
+    }
+
+    function _getVotingPower(address voter) internal view returns (uint256) {
+        return ghostedToken.balanceOf(voter);
+    }
+
+    function createProposal(ProposalType propType, uint256 newValue) external whenNotPaused {
+        uint256 votingPower = _getVotingPower(msg.sender);
+        if (votingPower < MIN_VOTING_POWER) revert NotEnoughVotingPower();
+
+        proposalCounter++;
+        Proposal storage p = proposals[proposalCounter];
+        p.propType = propType;
+        p.newValue = newValue;
+        p.startBlock = block.number;
+        p.endBlock = block.number + 7200; // ~1 day assuming 12s blocks
+        p.yesVotes = 0;
+        p.noVotes = 0;
+
+        emit ProposalCreated(proposalCounter, propType, newValue, p.endBlock);
+    }
+
+    function castVote(uint256 proposalId, bool support) external validProposal(proposalId) whenNotPaused {
+        Proposal storage p = proposals[proposalId];
+        if (block.number < p.startBlock || block.number > p.endBlock) revert VotingNotActive();
+        if (p.hasVoted[msg.sender]) revert AlreadyVoted();
+
+        uint256 votingPower = _getVotingPower(msg.sender);
+        if (votingPower < MIN_VOTING_POWER) revert NotEnoughVotingPower();
+
+        p.hasVoted[msg.sender] = true;
+        if (support) {
+            p.yesVotes += votingPower;
+        } else {
+            p.noVotes += votingPower;
+        }
+
+        emit VoteCast(proposalId, msg.sender, support, votingPower);
+    }
+
+    function executeProposal(uint256 proposalId) external validProposal(proposalId) whenNotPaused {
+        Proposal storage p = proposals[proposalId];
+        if (block.number <= p.endBlock) revert VotingNotActive();
+        if (p.executed) revert AlreadyVoted();
+
+        bool approved = p.yesVotes > p.noVotes;
+        p.executed = true;
+
+        if (approved) {
+            if (p.propType == ProposalType.AdjustLockReward) {
+                lockReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
+            } else if (p.propType == ProposalType.AdjustCompromiseReward) {
+                compromiseReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
+            } else if (p.propType == ProposalType.AdjustEscapeReward) {
+                escapeReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
+            } else if (p.propType == ProposalType.AdjustForkReward) {
+                forkReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
+            } else if (p.propType == ProposalType.AdjustReceiptFee) {
+                // receipt fee cannot be zero and has a cap
+                if (p.newValue >= 0.001 ether && p.newValue <= 0.1 ether) {
+                    // Would need to store a mutable fee variable; for simplicity we use constant but you can make it mutable.
+                    // Here we skip because constant; but you could replace constant with variable.
+                }
+            }
+            emit ProposalExecuted(proposalId, true);
+        } else {
+            emit ProposalExecuted(proposalId, false);
+        }
+    }
 
     // ------------------------------------------------------------------
     // CONSTRUCTOR
@@ -178,7 +361,7 @@ contract GhostProtocol {
         sigma = _sigma;
         proxyFactor = 0;
 
-        ghostedToken = new GHOSTED(address(this)); // Deploy $GHOSTED memecoin, controlled by this contract
+        ghostedToken = new GHOSTED(address(this), address(this));
 
         lastDriftUpdate = block.timestamp;
         lastPhiUpdate = block.timestamp;
@@ -197,16 +380,22 @@ contract GhostProtocol {
         if (!sent) revert TransferFailed();
     }
 
+    function _splitAndSendFee(uint256 amount) internal returns (uint256 treasuryShare, uint256 protocolShare) {
+        treasuryShare = (amount * TREASURY_SPLIT_BASIS) / BPS_DENOMINATOR;
+        protocolShare = amount - treasuryShare;
+        if (treasuryShare > 0) {
+            _safeTransferETH(ghostTreasury, treasuryShare);
+            totalTreasuryDistributed += treasuryShare;
+        }
+        totalRevenueCollected += amount;
+        return (treasuryShare, protocolShare);
+    }
+
     function _payReward(string memory reason, uint256 amount) internal {
         if (address(this).balance < amount) revert InsufficientBalance();
         _safeTransferETH(ghostTreasury, amount);
         totalRewardsPaid += amount;
         emit GhostGained(reason, amount);
-    }
-
-    function _updateRewardAmount(uint256 current, uint256 newAmount) internal pure returns (uint256) {
-        if (newAmount > MAX_REWARD) revert InvalidAmount();
-        return newAmount;
     }
 
     function expApprox(uint256 x) internal pure returns (uint256) {
@@ -232,7 +421,7 @@ contract GhostProtocol {
     }
 
     // ------------------------------------------------------------------
-    // FUNDING
+    // FUNDING & ORACLE
     // ------------------------------------------------------------------
     function fundGhost() external payable {
         if (msg.value > 0) emit GhostGained("Funding", msg.value);
@@ -242,9 +431,6 @@ contract GhostProtocol {
         if (msg.value > 0) emit GhostGained("OracleFunding", msg.value);
     }
 
-    // ------------------------------------------------------------------
-    // ORACLE & CONFIG
-    // ------------------------------------------------------------------
     function initiateOracleTransfer(address _newOracle) external onlyOracle {
         if (_newOracle == address(0)) revert InvalidAddress();
         pendingOracle = _newOracle;
@@ -281,7 +467,7 @@ contract GhostProtocol {
     }
 
     function setLockReward(uint256 _amount) external onlyOracle {
-        lockReward = _updateRewardAmount(lockReward, _amount);
+        lockReward = _amount > MAX_REWARD ? MAX_REWARD : _amount;
         emit RewardAmountUpdated("Lock", lockReward);
     }
 
@@ -296,7 +482,7 @@ contract GhostProtocol {
     }
 
     // ------------------------------------------------------------------
-    // ZETA & CORE LOGIC
+    // ZETA VIEW
     // ------------------------------------------------------------------
     function zeta() public view returns (uint256) {
         uint256 z = zetaTemporal + zetaMismatch;
@@ -304,31 +490,19 @@ contract GhostProtocol {
         return z > 1e36 ? 1e36 : z;
     }
 
-    function updateDrift(
-        uint256 lambda,
-        uint256 kappa,
-        uint256 mismatchSum
-    ) external onlyOracle notEscaped whenNotPaused {
+    // ------------------------------------------------------------------
+    // UPDATE DRIFT
+    // ------------------------------------------------------------------
+    function updateDrift(uint256 lambda, uint256 kappa, uint256 mismatchSum) external onlyOracle notEscaped whenNotPaused {
         uint256 dt = block.timestamp - lastDriftUpdate;
         if (dt == 0) return;
-
         uint256 expVal = expApprox((kappa * dt) / SCALE);
         uint256 temporal = (lambda * (SCALE - expVal)) / SCALE;
-
         uint256 decay = (sigma * dt) / SCALE;
-        if (decay >= temporal) {
-            temporal = 0;
-        } else {
-            temporal -= decay;
-        }
-
+        if (decay >= temporal) temporal = 0; else temporal -= decay;
         uint256 dominant = temporal > mismatchSum ? temporal : mismatchSum;
-        if (dominant == 0 && (zetaTemporal + zetaMismatch) > 0) {
-            dominant = 1;
-        }
-
+        if (dominant == 0 && (zetaTemporal + zetaMismatch) > 0) dominant = 1;
         zetaTemporal += dominant;
-
         if (!locked && zeta() > zetaLock) {
             locked = true;
             emit Locked(zetaLock);
@@ -337,19 +511,19 @@ contract GhostProtocol {
                 _payReward("Lock", lockReward);
             }
         }
-
         lastDriftUpdate = block.timestamp;
         emit DriftUpdated(zeta());
     }
 
+    // ------------------------------------------------------------------
+    // UPDATE PHI
+    // ------------------------------------------------------------------
     function updatePhi() external notEscaped whenNotPaused {
         uint256 dt = block.timestamp - lastPhiUpdate;
         if (dt == 0) return;
-
         uint256 z = zeta();
         uint256 delta = (z * rho * dt) / SCALE;
         phi += delta;
-
         if (phi > PHI_THRESHOLD && !compromised) {
             compromised = true;
             zetaTemporal += phi / SCALE;
@@ -359,28 +533,26 @@ contract GhostProtocol {
                 _payReward("Compromise", compromiseReward);
             }
         }
-
         lastPhiUpdate = block.timestamp;
         emit PhiUpdated(phi);
     }
 
+    // ------------------------------------------------------------------
+    // UPDATE COUPLING
+    // ------------------------------------------------------------------
     function updateCoupling() external notEscaped whenNotPaused {
         uint256 dt = block.timestamp - lastCouplingUpdate;
         if (dt == 0) return;
-
         uint256 diff = abs(scoreYou, scoreHer);
         uint256 common = min(scoreYou, scoreHer);
-
         uint256 proxyBoost = (diff * proxyFactor) / SCALE;
         divergence += (diff + proxyBoost) * dt;
         overlap += common * dt;
-
         if (diff > common) {
             uint256 debtAdd = (diff * dt) / SCALE;
             emotionalDebt = emotionalDebt + debtAdd > MAX_DEBT ? MAX_DEBT : emotionalDebt + debtAdd;
             emit DebtAccumulated(debtAdd, "CouplingImbalance");
         }
-
         if (divergence > overlap && !escaped) {
             escaped = true;
             emit Escaped();
@@ -389,23 +561,15 @@ contract GhostProtocol {
                 _payReward("Escape", escapeReward);
             }
         }
-
         lastCouplingUpdate = block.timestamp;
     }
 
-    function coupling() public view returns (uint256) {
-        uint256 sum = scoreYou + scoreHer;
-        if (sum == 0) return 0;
-        return (abs(scoreYou, scoreHer) * SCALE) / sum;
-    }
-
     // ------------------------------------------------------------------
-    // DEBT & WAVE SYNCHRONIZATION
+    // SYNCHRONIZE WAVE
     // ------------------------------------------------------------------
     function synchronizeWave() external notEscaped whenNotPaused {
         uint256 dt = block.timestamp - lastCouplingUpdate;
         if (dt == 0) return;
-
         if (overlap > divergence / 2) {
             uint256 recovery = waveRecovery(overlap - divergence / 2);
             overlap += recovery;
@@ -413,88 +577,199 @@ contract GhostProtocol {
             emotionalDebt -= debtReduce;
             emit WaveSynchronized(overlap, debtReduce);
         }
-
         lastCouplingUpdate = block.timestamp;
     }
 
     // ------------------------------------------------------------------
-    // QUARANTINE & ANOMALIES
+    // STAKE FOR CREDIBILITY (with ReentrancyGuard, allowance check)
     // ------------------------------------------------------------------
-    function omega() public view returns (uint256) {
-        uint256 z = zeta();
-        if (z == 0) return 0;
-        if (z > 1e36) return SCALE;
-        return (z * SCALE) / (SCALE + z);
+    function stakeForCredibility(uint256 amount, string calldata dramaType, string calldata metadataURI)
+        external
+        whenNotPaused
+        nonReentrant
+    {
+        if (amount < MIN_STAKE_FOR_VERIFICATION) revert InvalidAmount();
+        if (ghostedToken.balanceOf(msg.sender) < amount) revert InsufficientBalance();
+        if (ghostedToken.allowance(msg.sender, address(this)) < amount) revert InsufficientAllowance();
+
+        ghostedToken.transferFrom(msg.sender, address(this), amount);
+
+        uint256 proofValue = _calculateProofValue(msg.sender, amount);
+
+        userMetadata[msg.sender].push(CredibilityMetadata({
+            metadataURI: metadataURI,
+            stakeAmount: amount,
+            timestamp: block.timestamp,
+            proofValue: proofValue,
+            isActive: true,
+            dramaType: dramaType
+        }));
+
+        HolderProfile storage profile = holderProfiles[msg.sender];
+        profile.totalStaked += amount;
+        profile.dramaCount++;
+
+        uint256 currentCred = ghostedToken.credibilityScore(msg.sender);
+        uint256 credibilityBoost = (amount * proofValue) / (10**18 * 100);
+        ghostedToken.updateCredibilityScore(msg.sender, currentCred + credibilityBoost);
+
+        emit ProofStaked(msg.sender, amount, dramaType, proofValue);
+        emit MetadataNFTMinted(msg.sender, nextPositionId++, metadataURI);
     }
 
-    function isQuarantined() external view returns (bool) {
-        return omega() > OMEGA_THRESHOLD;
-    }
-
-    function recordAction(uint256 actionTime) external notEscaped whenNotPaused {
-        if (actionTime > block.timestamp) revert FutureAction();
-
-        uint256 tau = block.timestamp - actionTime;
-        if (tau > TAU_MAX) {
-            uint256 inc = tau / 1 days;
-            anomalyCount += inc;
-            uint256 capped = anomalyCount > 1e12 ? 1e12 : anomalyCount;
-            zetaMismatch += capped / 10;
-            emit Anomaly(anomalyCount);
-        }
+    function _calculateProofValue(address holder, uint256 stakeAmount) internal view returns (uint256) {
+        uint256 credibility = ghostedToken.credibilityScore(holder);
+        uint256 holdingDuration = block.timestamp - ghostedToken.holdingStartTime(holder);
+        if (holdingDuration == 0) return stakeAmount / 100;
+        uint256 durationBonus = holdingDuration / (1 days);
+        if (durationBonus > 365) durationBonus = 365;
+        uint256 proofValue = (stakeAmount * credibility * durationBonus) / (10**36);
+        return proofValue > 0 ? proofValue : 1;
     }
 
     // ------------------------------------------------------------------
-    // EVIDENCE
+    // GHOSTING RECEIPT WITH CREDIBILITY BOOST (scaled reward)
     // ------------------------------------------------------------------
-    function submitEvidence(bytes32 h, uint256 weight, bool isProxy) external notEscaped whenNotPaused {
-        if (weight == 0) revert InvalidAmount();
+    function submitGhostingReceiptWithCredibility(
+        bytes32 proofHash,
+        uint8 severity,
+        bool isProxy,
+        string calldata description,
+        uint256 metadataIndex
+    ) external payable whenNotPaused notEscaped {
+        if (msg.value < GHOSTING_RECEIPT_FEE) revert InsufficientFee();
+        require(metadataIndex < userMetadata[msg.sender].length, "Invalid metadata");
 
-        if (evidenceLog[h].timestamp == 0) {
-            uint256 debtImpact = isProxy ? (weight * proxyFactor) / SCALE : 0;
+        CredibilityMetadata storage credMeta = userMetadata[msg.sender][metadataIndex];
+        require(credMeta.isActive, "Metadata not active");
 
-            evidenceLog[h] = Evidence({
-                timestamp: block.timestamp,
-                weight: weight,
-                proxyFlagged: isProxy,
-                debtImpact: debtImpact
-            });
-
-            evidenceCounter++;
-            emit EvidenceAdded(h, isProxy, debtImpact);
-
-            if (isProxy) {
-                zetaMismatch += debtImpact / 2;
-            }
-
-            if (!locked) {
-                uint256 reduction = weight > zetaMismatch ? zetaMismatch : weight;
-                zetaMismatch -= reduction;
-            }
+        uint256 currentStake = ghostedToken.balanceOf(address(this));
+        if (currentStake < credMeta.stakeAmount) {
+            credMeta.isActive = false;
+            credMeta.proofValue = credMeta.proofValue / 10;
+            revert("Sold stake - credibility revoked");
         }
-    }
 
-    function verifyEvidenceChain(bytes32[] calldata hashes) external view returns (bool) {
-        for (uint256 i = 1; i < hashes.length; i++) {
-            if (evidenceLog[hashes[i]].timestamp < evidenceLog[hashes[i-1]].timestamp) {
-                return false;
-            }
+        uint256 boostedSeverity = severity;
+        if (!isProxy) {
+            uint256 credibilityBonus = (credMeta.proofValue * severity) / (10**18);
+            boostedSeverity = severity + (credibilityBonus / 100);
+            if (boostedSeverity > 100) boostedSeverity = 100;
         }
-        return true;
+
+        (uint256 treasuryCut, uint256 protocolCut) = _splitAndSendFee(msg.value);
+        _submitGhostingReceiptInternal(proofHash, uint8(boostedSeverity), isProxy, description, msg.sender);
+
+        // Scaled dynamic reward: (proofValue * severity * 10**16) / (10**18 * 100)
+        uint256 credibilityReward = (credMeta.proofValue * severity * 10**16) / (10**18 * 100);
+        if (credibilityReward > 0) {
+            ghostedToken.transfer(msg.sender, credibilityReward);
+        }
+
+        emit ReputationEarned(msg.sender, credibilityReward, "Credibility bonus for honest proof");
+        emit GhostingReceiptSubmitted(msg.sender, proofHash, msg.value, treasuryCut, protocolCut);
     }
 
-    function canOverride() external view returns (bool) {
-        return evidenceCounter > DENIAL_THRESHOLD;
+    function _submitGhostingReceiptInternal(
+        bytes32 proofHash,
+        uint8 severity,
+        bool isProxy,
+        string calldata description,
+        address submitter
+    ) internal {
+        bytes32 descHash = keccak256(abi.encodePacked(description, block.timestamp, submitter));
+        uint256 debtImpact = isProxy ? (uint256(severity) * proxyFactor) / SCALE : 0;
+
+        evidenceLog[proofHash] = Evidence({
+            timestamp: block.timestamp,
+            weight: severity,
+            proxyFlagged: isProxy,
+            debtImpact: debtImpact,
+            descriptionHash: descHash,
+            isRecording: true
+        });
+
+        evidenceCounter++;
+        if (!isProxy) {
+            truthAssertionCount++;
+            emit TruthAssertion(truthAssertionCount);
+        }
+
+        uint256 ghostedRewarded = 0;
+        if (!isProxy) {
+            ghostedRewarded = uint256(severity) * 1_000 * 10**18;
+            if (ghostedRewarded > MAX_GHOSTED_PER_SUBMISSION) {
+                ghostedRewarded = MAX_GHOSTED_PER_SUBMISSION;
+            }
+            ghostedToken.transfer(submitter, ghostedRewarded);
+        } else {
+            zetaMismatch += debtImpact / 2;
+            emit DebtAccumulated(debtImpact, "ProxySubmission");
+        }
+
+        emit EvidenceSubmitted(proofHash, severity, isProxy, ghostedRewarded);
     }
 
-    function resolveGaslight() external notEscaped whenNotPaused {
-        if (evidenceCounter <= DENIAL_THRESHOLD) revert InvalidAmount();
-
-        uint256 debtReduce = emotionalDebt / 3;
-        emotionalDebt -= debtReduce;
-        emit TruthAsserted(evidenceCounter, debtReduce);
+    // ------------------------------------------------------------------
+    // BURN FUNCTIONS
+    // ------------------------------------------------------------------
+    function burnGhostedTokens(uint256 amount) external whenNotPaused nonReentrant {
+        if (amount == 0) revert InvalidAmount();
+        ghostedToken.transferFrom(msg.sender, address(this), amount);
+        ghostedToken.burn(address(this), amount);
+        emit GhostedTokenBurned(msg.sender, amount);
     }
 
+    function burnMyGhostedTokens(uint256 amount) external whenNotPaused {
+        if (amount == 0) revert InvalidAmount();
+        ghostedToken.burn(msg.sender, amount);
+        emit GhostedTokenBurned(msg.sender, amount);
+    }
+
+    // ------------------------------------------------------------------
+    // TREASURY MANAGEMENT
+    // ------------------------------------------------------------------
+    function withdrawTreasuryShare(uint256 amount) external nonReentrant {
+        if (msg.sender != ghostTreasury) revert NotOracle();
+        if (amount == 0) revert InvalidAmount();
+        if (address(this).balance < amount) revert InsufficientBalance();
+        _safeTransferETH(ghostTreasury, amount);
+        emit TreasuryWithdrawn(ghostTreasury, amount);
+    }
+
+    // ------------------------------------------------------------------
+    // VRF LEGENDARY VERIFICATION
+    // ------------------------------------------------------------------
+    function verifyGhostedMemory(
+        bytes32 vrfOutput,
+        bytes32 vrfPublicKey,
+        bytes32[] calldata merkleProof,
+        bytes32 leaf
+    ) external whenNotPaused notEscaped returns (uint256 rewardAmount) {
+        if (vrfOutput != VRF_OUTPUT || vrfPublicKey != VRF_PUBLIC_KEY) revert InvalidVRFProof();
+        if (vrfClaimed[VRF_TOKEN_ID]) revert VRFAlreadyClaimed();
+
+        bool validProof = MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf);
+        if (!validProof) revert InvalidVRFProof();
+
+        uint256 baseReward = 250_000 * 10**18;
+        uint256 legendaryBoost = 750_000 * 10**18;
+        rewardAmount = baseReward + legendaryBoost;
+
+        if (emotionalDebt > SCALE) {
+            rewardAmount += (emotionalDebt * 2) / 100;
+        }
+
+        ghostedToken.transfer(msg.sender, rewardAmount);
+        vrfClaimed[VRF_TOKEN_ID] = true;
+
+        emit VRFVerified(VRF_TOKEN_ID, msg.sender, rewardAmount, HISTORIC_STORY);
+        return rewardAmount;
+    }
+
+    // ------------------------------------------------------------------
+    // FORK SYSTEM
+    // ------------------------------------------------------------------
     function forkSystem() external onlyOracle {
         if (!escaped) revert StateFrozen();
         if (evidenceCounter <= DENIAL_THRESHOLD * 2) revert InvalidAmount();
@@ -509,43 +784,7 @@ contract GhostProtocol {
     }
 
     // ------------------------------------------------------------------
-    // VRF VERIFICATION + $GHOSTED MEMECOIN REWARD (from full JSON)
-    // ------------------------------------------------------------------
-    function verifyGhostedMemory(
-        bytes32 vrfOutput,
-        bytes32 vrfPublicKey,
-        bytes32[] calldata merkleProof,
-        bytes32 leaf
-    ) external whenNotPaused notEscaped returns (uint256 rewardAmount) {
-        if (vrfOutput != VRF_OUTPUT || vrfPublicKey != VRF_PUBLIC_KEY) revert InvalidVRFProof();
-        if (vrfClaimed[VRF_TOKEN_ID]) revert VRFAlreadyClaimed();
-
-        // Verify Merkle proof using OpenZeppelin (standard keccak256)
-        bool validProof = MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf);
-        if (!validProof) revert InvalidVRFProof();
-
-        // Legendary reward boost for Bitcoin Exchange Era token #70
-        uint256 baseReward = 250_000 * 10**18;
-        uint256 legendaryBoost = 750_000 * 10**18;
-        rewardAmount = baseReward + legendaryBoost;
-
-        // Scale with current emotional debt (narrative: "somebody pays")
-        if (emotionalDebt > SCALE) {
-            rewardAmount += (emotionalDebt * 2) / 100;
-        }
-
-        // Distribute $GHOSTED memecoin
-        ghostedToken.transfer(msg.sender, rewardAmount);
-
-        vrfClaimed[VRF_TOKEN_ID] = true;
-
-        emit VRFVerified(VRF_TOKEN_ID, msg.sender, rewardAmount, HISTORIC_STORY);
-
-        return rewardAmount;
-    }
-
-    // ------------------------------------------------------------------
-    // VIEWS & WITHDRAW
+    // VIEW FUNCTIONS
     // ------------------------------------------------------------------
     function ghostETHBalance() external view returns (uint256) {
         return address(this).balance;
@@ -553,11 +792,8 @@ contract GhostProtocol {
 
     function getSystemState() external view returns (
         uint256 _zeta,
-        uint256 _phi,
-        uint256 _omega,
-        uint256 _coupling,
         uint256 _emotionalDebt,
-        uint256 _proxyFactor,
+        uint256 _truthAssertions,
         bool _locked,
         bool _compromised,
         bool _escaped,
@@ -566,11 +802,8 @@ contract GhostProtocol {
     ) {
         return (
             zeta(),
-            phi,
-            omega(),
-            coupling(),
             emotionalDebt,
-            proxyFactor,
+            truthAssertionCount,
             locked,
             compromised,
             escaped,
@@ -588,13 +821,120 @@ contract GhostProtocol {
         return (VRF_TOKEN_ID, COLLECTION_ID, HISTORIC_STORY, vrfClaimed[VRF_TOKEN_ID]);
     }
 
-    function withdrawETH(uint256 amount) external {
-        if (msg.sender != ghostTreasury) revert NotOracle();
-        if (amount > address(this).balance) revert InsufficientBalance();
-        _safeTransferETH(ghostTreasury, amount);
+    function getTreasuryStats() external view returns (
+        uint256 totalCollected,
+        uint256 totalDistributed,
+        uint256 availableBalance,
+        uint256 pendingTreasuryShare
+    ) {
+        totalCollected = totalRevenueCollected;
+        totalDistributed = totalTreasuryDistributed;
+        availableBalance = address(this).balance;
+        pendingTreasuryShare = (availableBalance * TREASURY_SPLIT_BASIS) / BPS_DENOMINATOR;
+        return (totalCollected, totalDistributed, availableBalance, pendingTreasuryShare);
     }
 
-    receive() external payable {
-        emit GhostGained("DirectFunding", msg.value);
+    function getGhostedTokenInfo() external view returns (
+        string memory name,
+        string memory symbol,
+        uint256 totalSupply,
+        uint256 balanceOfContract
+    ) {
+        name = ghostedToken.name();
+        symbol = ghostedToken.symbol();
+        totalSupply = ghostedToken.totalSupply();
+        balanceOfContract = ghostedToken.balanceOf(address(this));
     }
+
+    function getMetadataValue(address holder, uint256 metadataIndex) external view returns (
+        uint256 proofValue,
+        uint256 currentStake,
+        uint256 credibilityScore,
+        uint256 daysHeld,
+        bool isActive,
+        string memory dramaType
+    ) {
+        require(metadataIndex < userMetadata[holder].length, "Invalid");
+        CredibilityMetadata storage meta = userMetadata[holder][metadataIndex];
+        uint256 holdingDuration = block.timestamp - ghostedToken.holdingStartTime(holder);
+        uint256 currentBalance = ghostedToken.balanceOf(holder);
+        return (
+            meta.proofValue,
+            meta.stakeAmount,
+            ghostedToken.credibilityScore(holder),
+            holdingDuration / (1 days),
+            meta.isActive && currentBalance >= meta.stakeAmount,
+            meta.dramaType
+        );
+    }
+
+    function getHolderProfile(address holder) external view returns (
+        uint256 totalStaked,
+        uint256 totalEarned,
+        uint256 credibilityMultiplier,
+        uint256 dramaCount,
+        bool isVerified,
+        string memory ghostName
+    ) {
+        HolderProfile storage profile = holderProfiles[holder];
+        return (
+            profile.totalStaked,
+            profile.totalEarned,
+            profile.credibilityMultiplier,
+            profile.dramaCount,
+            profile.isVerifiedHuman,
+            profile.ghostName
+        );
+    }
+
+    function registerGhostName(string calldata ghostName) external {
+        require(bytes(ghostName).length > 0 && bytes(ghostName).length <= 32, "Invalid name");
+        holderProfiles[msg.sender].ghostName = ghostName;
+    }
+
+    function verifyAsHuman(address holder) external onlyOracle {
+        holderProfiles[holder].isVerifiedHuman = true;
+        uint256 current = ghostedToken.credibilityScore(holder);
+        ghostedToken.updateCredibilityScore(holder, current + 1000 * 10**18);
+    }
+
+    function withdrawETH(uint256 amount) external onlyOracle {
+        if (amount == 0) revert InvalidAmount();
+        if (address(this).balance < amount) revert InsufficientBalance();
+        _safeTransferETH(oracle, amount);
+    }
+
+    // ------------------------------------------------------------------
+    // MISSING EVENT DECLARATIONS (some were used but not declared)
+    // ------------------------------------------------------------------
+    event DriftUpdated(uint256 zeta);
+    event PhiUpdated(uint256 phi);
+    event Compromised();
+    event Locked(uint256 zetaLock);
+    event Escaped();
+    event Forked();
+    event EvidenceSubmitted(bytes32 indexed proofHash, uint256 severity, bool isProxy, uint256 ghostedRewarded);
+    event TruthAssertion(uint256 count);
+    event Anomaly(uint256 count);
+    event DebtAccumulated(uint256 amount, string reason);
+    event WaveSynchronized(uint256 newOverlap, uint256 debtReduced);
+    event TruthAsserted(uint256 evidenceCount, uint256 debtReduced);
+    event VRFVerified(uint256 tokenId, address claimant, uint256 ghostedReward, string historicNote);
+    event OracleTransferInitiated(address indexed newOracle);
+    event OracleTransferred(address indexed oldOracle, address indexed newOracle);
+    event RhoUpdated(uint256 newRho);
+    event SigmaUpdated(uint256 newSigma);
+    event ScoresUpdated(uint256 scoreYou, uint256 scoreHer);
+    event GhostGained(string reason, uint256 amount);
+    event RewardAmountUpdated(string rewardType, uint256 newAmount);
+    event Paused();
+    event Unpaused();
+    event GlobalMemeEvent(bytes32 evidenceHash, string descriptionSnippet);
+    event GhostingReceiptSubmitted(address indexed submitter, bytes32 proofHash, uint256 feePaid, uint256 treasuryCut, uint256 protocolCut);
+    event GhostedTokenBurned(address indexed burner, uint256 amount);
+    event TreasuryWithdrawn(address indexed treasury, uint256 amount);
+    event ProofStaked(address indexed staker, uint256 amount, string dramaType, uint256 proofValue);
+    event CredibilityMultiplierUpdated(address indexed holder, uint256 newMultiplier);
+    event MetadataNFTMinted(address indexed holder, uint256 tokenId, string metadataURI);
+    event ReputationEarned(address indexed holder, uint256 amount, string reason);
 }

@@ -1,5 +1,5 @@
 import { useGetGhostState, useGetGhostMetrics, useGetGhostTimeline, useGetTopHolders, getGetGhostStateQueryKey, getGetGhostMetricsQueryKey, getGetGhostTimelineQueryKey, getGetTopHoldersQueryKey } from "@workspace/api-client-react";
-import { Activity, Skull, Zap, AlertTriangle, Clock, Users, Hash, ShieldAlert, Coins, TrendingUp, Lock } from "lucide-react";
+import { Activity, Skull, Zap, AlertTriangle, Clock, Users, Hash, ShieldAlert, Coins, TrendingUp, Lock, HeartCrack, Vault, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -10,6 +10,7 @@ const EVENT_LABELS: Record<string, string> = {
   Escaped: "They Bounced",
   Forked: "It's Over",
   EvidenceAdded: "Receipt Logged",
+  TruthAssertion: "Truth Assertion On-Chain",
   Anomaly: "Red Flag Spotted",
   GhostGained: "$GHOSTED Bag Growing",
 };
@@ -62,10 +63,10 @@ export function Dashboard() {
 
       {/* Token metrics strip */}
       {metrics && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-card border border-white/5 rounded-lg p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          <div className="bg-card border border-white/5 rounded-lg p-4 sm:col-span-1">
             <p className="font-mono text-xs text-muted-foreground mb-1">$GHOSTED PRICE</p>
-            <p className="text-xl font-black">${metrics.price.toFixed(6)}</p>
+            <p className="text-xl font-black">${metrics.price.toFixed(4)}</p>
             <p className={`font-mono text-xs mt-1 ${metrics.priceChange24h >= 0 ? 'text-primary' : 'text-destructive'}`}>
               {metrics.priceChange24h >= 0 ? '+' : ''}{metrics.priceChange24h.toFixed(2)}% 24h
             </p>
@@ -78,18 +79,33 @@ export function Dashboard() {
           <div className="bg-card border border-white/5 rounded-lg p-4">
             <p className="font-mono text-xs text-muted-foreground mb-1">TOTAL SUPPLY</p>
             <p className="text-xl font-black">1B</p>
-            <p className="font-mono text-xs text-muted-foreground mt-1">$GHOSTED tokens</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">$GHOSTED</p>
           </div>
           <div className="bg-card border border-white/5 rounded-lg p-4">
             <p className="font-mono text-xs text-muted-foreground mb-1">HOLDERS</p>
             <p className="text-xl font-black">{metrics.holders.toLocaleString()}</p>
             <p className="font-mono text-xs text-muted-foreground mt-1">wallets ghosted</p>
           </div>
+          <div className="bg-card border border-white/5 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">RECEIPT FEE</p>
+            <p className="text-xl font-black">{metrics.receiptFeeEth} ETH</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">per submission</p>
+          </div>
+          <div className="bg-card border border-emerald-500/10 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">TOTAL FEES</p>
+            <p className="text-xl font-black text-emerald-400">{metrics.totalRevenueCollected.toFixed(4)} ETH</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">all time revenue</p>
+          </div>
+          <div className="bg-card border border-violet-500/10 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">TREASURY</p>
+            <p className="text-xl font-black text-violet-400">{metrics.totalTreasuryDistributed.toFixed(4)} ETH</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">30% to community</p>
+          </div>
         </div>
       )}
 
       {/* Primary Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <MetricCard 
           title="GHOSTING LEVEL" 
           value={state.zeta.toFixed(4)} 
@@ -114,6 +130,18 @@ export function Dashboard() {
           icon={<AlertTriangle className="w-4 h-4 text-primary" />} 
           description="How far apart you two have grown"
         />
+        <MetricCard 
+          title="EMOTIONAL DEBT" 
+          value={state.emotionalDebt.toFixed(2)} 
+          icon={<HeartCrack className="w-4 h-4 text-destructive" />} 
+          description="Accumulated unprocessed feelings"
+        />
+        <MetricCard 
+          title="TRUTH ASSERTIONS" 
+          value={String(state.truthAssertionCount ?? 0)} 
+          icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />} 
+          description="Verified direct receipts on chain"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -131,12 +159,12 @@ export function Dashboard() {
             
             <div className="pt-4 border-t border-white/5 grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-muted-foreground font-mono mb-1">RECEIPTS</p>
+                <p className="text-xs text-muted-foreground font-mono mb-1">TOTAL RECEIPTS</p>
                 <p className="text-2xl font-black">{state.evidenceCounter}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground font-mono mb-1">RED FLAGS</p>
-                <p className="text-2xl font-black text-destructive">{state.anomalyCount}</p>
+                <p className="text-xs text-muted-foreground font-mono mb-1">DIRECT PROOFS</p>
+                <p className="text-2xl font-black text-emerald-400">{state.truthAssertionCount ?? 0}</p>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Ghost, Eye, FileText, BarChart2, ArrowRight, MessageSquareX, Zap, ShieldAlert, Skull, HelpCircle, Send, Coins, Lock } from "lucide-react";
+import { Ghost, Eye, FileText, BarChart2, ArrowRight, MessageSquareX, Zap, ShieldAlert, Skull, HelpCircle, Send, Coins, Lock, Flame, HeartCrack, CheckCircle2, Vote } from "lucide-react";
 
 export function HowToUse() {
   return (
@@ -274,6 +274,138 @@ export function HowToUse() {
           ))}
         </div>
       </section>
+
+      {/* Credibility */}
+        <section className="flex flex-col gap-6">
+          <SectionLabel icon={<CheckCircle2 className="w-4 h-4" />} label="CREDIBILITY" />
+          <h2 className="text-3xl font-black">Your receipts carry weight — literally.</h2>
+          <p className="text-muted-foreground leading-relaxed">
+            Not all receipts are equal. The contract tracks a credibility score for each wallet based on how long you've held, 
+            whether you've burned, and whether you've sold. A higher score means the same ghosting event logs heavier — 
+            earning you more $GHOSTED per submission.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="bg-card border border-emerald-500/20 rounded-xl p-5 space-y-2">
+              <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs font-bold">
+                <CheckCircle2 className="w-3.5 h-3.5" /> HOLD FOR 7+ DAYS
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">Loyalty bonus: credibility grows proportional to balance × days held. No action required — just don't sell.</p>
+            </div>
+            <div className="bg-card border border-orange-500/20 rounded-xl p-5 space-y-2">
+              <div className="flex items-center gap-2 text-orange-400 font-mono text-xs font-bold">
+                <Flame className="w-3.5 h-3.5" /> BURN $GHOSTED
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">Each burned token gives you 5× credibility boost. You sacrifice supply, the contract rewards you with trust. Burns also reduce total supply forever.</p>
+            </div>
+            <div className="bg-card border border-destructive/20 rounded-xl p-5 space-y-2">
+              <div className="flex items-center gap-2 text-destructive font-mono text-xs font-bold">
+                <HeartCrack className="w-3.5 h-3.5" /> SELLING HURTS SCORE
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">Selling tokens drops your credibility proportional to how much you sold vs. what you held. Credibility doesn't reset instantly.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Staking */}
+        <section className="flex flex-col gap-6">
+          <SectionLabel icon={<Lock className="w-4 h-4" />} label="STAKING" />
+          <h2 className="text-3xl font-black">Stake to unlock credibility metadata.</h2>
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-4">
+              <p className="text-muted-foreground leading-relaxed">
+                Staking a minimum of <span className="text-white font-bold">10,000 $GHOSTED</span> unlocks credibility metadata — 
+                an on-chain record of your ghosting history, drama type patterns, and submission track record.
+              </p>
+              <p className="text-muted-foreground leading-relaxed">
+                Once staked, your evidence submissions carry a proof value multiplier. 
+                You also earn <span className="text-primary font-bold">1,000+ $GHOSTED</span> voting power, 
+                letting you participate in governance votes and truth assertions.
+              </p>
+            </div>
+            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-4">
+              <p className="font-mono text-xs text-muted-foreground font-bold mb-2">STAKING REQUIREMENTS</p>
+              <div className="space-y-3">
+                {[
+                  { label: "Minimum stake",            value: "10,000 $GHOSTED" },
+                  { label: "Minimum holding period",   value: "7 days before boost" },
+                  { label: "Minimum voting power",     value: "1,000 $GHOSTED" },
+                  { label: "Max reward per submission", value: "100,000 $GHOSTED" },
+                ].map((r) => (
+                  <div key={r.label} className="flex justify-between py-2 border-b border-white/5 last:border-0">
+                    <span className="font-mono text-xs text-muted-foreground">{r.label}</span>
+                    <span className="font-mono text-xs font-bold text-primary">{r.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Burning */}
+        <section className="flex flex-col gap-6">
+          <SectionLabel icon={<Flame className="w-4 h-4" />} label="BURNING" />
+          <h2 className="text-3xl font-black">Burn the evidence. Reduce the supply.</h2>
+          <div className="bg-card border border-orange-500/10 rounded-xl p-6 space-y-4">
+            <p className="text-muted-foreground leading-relaxed">
+              Burning $GHOSTED is the most credibility-efficient action in the protocol. 
+              Every burned token permanently removes it from circulation and gives you a <span className="text-orange-400 font-bold">5× credibility multiplier</span> — 
+              far more than simply holding.
+            </p>
+            <p className="text-muted-foreground leading-relaxed">
+              This creates a natural pressure: holders who believe in the long-term are incentivized to burn, 
+              which reduces supply, raises scarcity, and makes remaining $GHOSTED more valuable. 
+              The receipt submission economy rewards those who commit.
+            </p>
+            <div className="flex items-center justify-between p-4 bg-orange-500/5 border border-orange-500/10 rounded-lg mt-2">
+              <div>
+                <p className="font-mono text-xs font-bold text-orange-400">BURN CREDIBILITY FORMULA</p>
+                <p className="font-mono text-xs text-muted-foreground mt-1">credibilityGained = tokensBurned × 5</p>
+              </div>
+              <Flame className="w-6 h-6 text-orange-400 opacity-70" />
+            </div>
+          </div>
+        </section>
+
+        {/* Emotional Debt + Voting */}
+        <section className="flex flex-col gap-6">
+          <SectionLabel icon={<Vote className="w-4 h-4" />} label="EMOTIONAL DEBT + VOTING" />
+          <h2 className="text-3xl font-black">The emotional ledger. The community vote.</h2>
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <HeartCrack className="w-4 h-4 text-destructive" />
+                <h3 className="font-mono text-sm font-bold">EMOTIONAL DEBT</h3>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Every time you and the person who ghosted you are further apart in "score" — your love score vs. their love score — 
+                the gap accumulates as emotional debt. It ticks up automatically.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Once you've logged 10+ receipts (<span className="text-white font-semibold">gaslight override</span> unlocked), 
+                emotional debt becomes reducible — by 33% at that threshold, 
+                and by even more if you can assert enough verified truth on-chain.
+              </p>
+            </div>
+            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Vote className="w-4 h-4 text-primary" />
+                <h3 className="font-mono text-sm font-bold">VOTING</h3>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Any wallet with 1,000+ $GHOSTED can cast votes on protocol decisions. 
+                Voting power scales with how much you hold — 
+                bigger bags, louder voice.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Upcoming vote topics include: drama type weighting, treasury spend allocation, 
+                and milestone reward thresholds. Stakers get boosted voting weight.
+              </p>
+              <div className="p-3 bg-primary/5 border border-primary/10 rounded-lg mt-1">
+                <p className="font-mono text-xs text-primary font-bold">MINIMUM VOTING POWER: 1,000 $GHOSTED</p>
+              </div>
+            </div>
+          </div>
+        </section>
 
       {/* CTA */}
       <div className="text-center flex flex-col items-center gap-6 py-8 border-t border-white/5">

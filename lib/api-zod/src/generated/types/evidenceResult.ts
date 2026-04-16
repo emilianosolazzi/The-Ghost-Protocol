@@ -9,12 +9,16 @@
 export interface EvidenceResult {
   success: boolean;
   evidenceCounter: number;
+  truthAssertionCount: number;
   message: string;
   newZeta: number;
-  /** Simulated $GHOSTED tokens earned for this submission */
+  /** $GHOSTED tokens earned (capped at 100,000) */
   ghostedReward?: number;
-  /** True when evidence counter exceeds denial threshold (10) */
+  /** ETH sent to treasury (30% of 0.01 ETH fee) */
+  treasuryCut?: number;
+  /** ETH kept in protocol (70%) */
+  protocolCut?: number;
   gaslightUnlocked?: boolean;
-  /** True when evidence counter exceeds fork threshold (20) */
   forkReady?: boolean;
+  dramaType?: string;
 }

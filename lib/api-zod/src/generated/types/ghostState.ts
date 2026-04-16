@@ -19,8 +19,11 @@ export interface GhostState {
   compromised: boolean;
   escaped: boolean;
   forked: boolean;
-  anomalyCount: number;
   evidenceCounter: number;
+  /** Direct (non-proxy) receipts only */
+  truthAssertionCount: number;
+  /** Accumulated emotional debt */
+  emotionalDebt: number;
   totalRewardsPaid: number;
   isQuarantined: boolean;
   scoreYou: number;

@@ -12,15 +12,33 @@ import {
 
 const router: IRouter = Router();
 
-// Contract constants
-const TOTAL_SUPPLY = 1_000_000_000;       // 1B $GHOSTED
-const DENIAL_THRESHOLD = 10;              // evidenceCounter > 10 → gaslightUnlocked
-const FORK_THRESHOLD = 20;               // evidenceCounter > 20 → forkReady
-const LOCK_REWARD_ETH = 1;              // ETH paid when Locked triggers
-const COMPROMISE_REWARD_ETH = 5;        // ETH paid when Compromised triggers
-const ESCAPE_REWARD_ETH = 2;           // ETH paid when Escaped triggers
-const FORK_REWARD_ETH = 10;            // ETH paid when Forked triggers
-const VRF_LEGENDARY_REWARD = 1_000_000; // $GHOSTED for token #70
+// ─── Contract Constants ──────────────────────────────────────────────────────
+const TOTAL_SUPPLY        = 1_000_000_000;
+const DENIAL_THRESHOLD    = 10;           // > 10 → gaslight override
+const FORK_THRESHOLD      = 20;           // > 20 + escaped → fork
+const GHOSTING_RECEIPT_FEE = 0.01;        // ETH per submission
+const TREASURY_SPLIT      = 0.30;         // 30% of fee → treasury
+const MAX_GHOSTED_PER_SUB = 100_000;      // cap on $GHOSTED per receipt
+const LOCK_REWARD_ETH     = 1;
+const COMPROMISE_REWARD_ETH = 5;
+const ESCAPE_REWARD_ETH   = 2;
+const FORK_REWARD_ETH     = 10;
+const VRF_LEGENDARY_REWARD = 1_000_000;   // $GHOSTED for token #70
+const MIN_HOLDING_DAYS    = 7;
+const MIN_STAKE_AMOUNT    = 10_000;       // $GHOSTED to stake for credibility
+const MIN_VOTING_POWER    = 1_000;        // $GHOSTED to vote
+
+// ─── Drama types (friendly labels for ghosting categories) ───────────────────
+export const DRAMA_TYPES = [
+  { id: "left_on_read",      label: "Left On Read",        emoji: "👀", desc: "Text delivered, opened, never answered" },
+  { id: "delivered_no_open", label: "Delivered, Never Opened", emoji: "📬", desc: "They haven't even looked at it" },
+  { id: "seen_on_story",     label: "Seen Your Story",     emoji: "👻", desc: "Active on socials, silent on you" },
+  { id: "slow_fade",         label: "The Slow Fade",       emoji: "🌫️", desc: "Replies getting shorter, gaps getting longer" },
+  { id: "soft_ghost",        label: "Soft Ghost",          emoji: "🌙", desc: "One-word replies, energy gone cold" },
+  { id: "hard_ghost",        label: "Hard Ghost",          emoji: "💀", desc: "Complete and total disappearance" },
+  { id: "orbiting",          label: "Orbiting",            emoji: "🛸", desc: "Likes your stuff, won't actually talk" },
+  { id: "double_text",       label: "Double Text Ignored", emoji: "🗓️", desc: "You texted again. Still nothing." },
+];
 
 async function ensureGhostState() {
   const rows = await db.select().from(ghostStateTable).limit(1);
@@ -36,7 +54,11 @@ async function ensureGhostState() {
       forked: false,
       anomalyCount: 7,
       evidenceCounter: 3,
+      truthAssertionCount: 2,
+      emotionalDebt: 12.4,
       totalRewardsPaid: 13,
+      totalRevenueCollected: 0.03,
+      totalTreasuryDistributed: 0.009,
       scoreYou: 72,
       scoreHer: 31,
       paused: false,
@@ -50,23 +72,24 @@ async function ensureGhostState() {
 function simulateDrift(state: typeof ghostStateTable.$inferSelect) {
   const dt = 0.001;
   const newZeta = Math.min(state.zeta + Math.random() * dt * 2, 1.0);
-  const newPhi = Math.min(state.phi + newZeta * 0.0005, 1.0);
-  // omega() = zeta / (1 + zeta) — matches contract formula
+  const newPhi  = Math.min(state.phi + newZeta * 0.0005, 1.0);
+  // omega() = zeta / (1 + zeta)  — exact contract formula
   const newOmega = newZeta / (1 + newZeta);
   const scoreDiff = Math.abs(state.scoreYou - state.scoreHer);
-  const scoreSum = state.scoreYou + state.scoreHer;
-  // coupling() = abs(scoreYou, scoreHer) * SCALE / (scoreYou + scoreHer) — normalized to 0-1
+  const scoreSum  = state.scoreYou + state.scoreHer;
   const newCoupling = scoreSum === 0 ? 0 : scoreDiff / scoreSum;
-
-  return { newZeta, newPhi, newOmega, newCoupling };
+  // Emotional debt ticks up when scoreDiff > scoreMin (coupling imbalance)
+  const newEmotionalDebt = Math.min(state.emotionalDebt + scoreDiff * dt, 1e10);
+  return { newZeta, newPhi, newOmega, newCoupling, newEmotionalDebt };
 }
 
+// ─── State ───────────────────────────────────────────────────────────────────
 router.get("/ghost/state", async (req, res): Promise<void> => {
   const state = await ensureGhostState();
-  const { newZeta, newPhi, newOmega, newCoupling } = simulateDrift(state);
+  const { newZeta, newPhi, newOmega, newCoupling, newEmotionalDebt } = simulateDrift(state);
 
   await db.update(ghostStateTable)
-    .set({ zeta: newZeta, phi: newPhi, omega: newOmega, coupling: newCoupling })
+    .set({ zeta: newZeta, phi: newPhi, omega: newOmega, coupling: newCoupling, emotionalDebt: newEmotionalDebt })
     .where(eq(ghostStateTable.id, state.id));
 
   const response = GetGhostStateResponse.parse({
@@ -78,25 +101,27 @@ router.get("/ghost/state", async (req, res): Promise<void> => {
     compromised: state.compromised,
     escaped: state.escaped,
     forked: state.forked,
-    anomalyCount: state.anomalyCount,
     evidenceCounter: state.evidenceCounter,
+    truthAssertionCount: state.truthAssertionCount ?? 0,
+    emotionalDebt: newEmotionalDebt,
     totalRewardsPaid: state.totalRewardsPaid,
-    // isQuarantined = omega() > OMEGA_THRESHOLD (0.5)
     isQuarantined: newOmega > 0.5,
     scoreYou: state.scoreYou,
     scoreHer: state.scoreHer,
     paused: state.paused,
   });
-
   res.json(response);
 });
 
+// ─── Metrics ─────────────────────────────────────────────────────────────────
 router.get("/ghost/metrics", async (_req, res): Promise<void> => {
   // $GHOSTED: 1B supply, price $0.420 → ~$420M market cap (420 narrative)
   const basePrice = 0.420;
   const fluctuation = 1 + (Math.random() - 0.5) * 0.04;
   const price = basePrice * fluctuation;
   const priceChange24h = (Math.random() - 0.3) * 30;
+
+  const state = await ensureGhostState();
 
   const response = GetGhostMetricsResponse.parse({
     marketCap: price * TOTAL_SUPPLY,
@@ -109,11 +134,14 @@ router.get("/ghost/metrics", async (_req, res): Promise<void> => {
     rejectionRate: 41.2,
     heartbreakScore: 88,
     readReceiptsIgnored: 2_847_291 + Math.floor(Math.random() * 100),
+    totalRevenueCollected: state.totalRevenueCollected ?? 0,
+    totalTreasuryDistributed: state.totalTreasuryDistributed ?? 0,
+    receiptFeeEth: GHOSTING_RECEIPT_FEE,
   });
-
   res.json(response);
 });
 
+// ─── Event messages ───────────────────────────────────────────────────────────
 const GHOST_MESSAGES: Record<string, string[]> = {
   DriftUpdated: [
     "Getting more distant — they haven't replied",
@@ -134,78 +162,71 @@ const GHOST_MESSAGES: Record<string, string[]> = {
     "Brain locked in — you cannot unsee the read receipt",
   ],
   Escaped: [
-    "They have officially left the chat",
+    "They have officially left the chat — 2 ETH escape reward triggered",
     "They bounced — no explanation given",
   ],
   Forked: [
-    "It's over — contract has forked, 10 ETH reward released",
+    "It's over — fork triggered after 20+ receipts. 10 ETH released.",
     "The relationship is officially on-chain history",
   ],
   EvidenceAdded: [
-    "Direct receipt logged — ghosting level reduced",
-    "Screenshot accepted as proof — mismatch corrected",
-    "Your receipt is now permanently on record",
+    "Direct receipt verified — ghosting level adjusted, $GHOSTED earned",
+    "Your proof hash is permanently on record",
+    "Truth assertion logged — credibility boosted",
   ],
-  Anomaly: [
-    "Red flag: triple text with zero response",
-    "Red flag: message sent at 3am — no reply",
-    "Unusual silence pattern detected — they saw it",
+  TruthAssertion: [
+    "Truth assertion #{count} — direct proof on chain",
+    "Honest receipt verified — detection entropy rising",
   ],
   GhostGained: [
-    "$GHOSTED holders rewarded — someone just got ghosted",
-    "Treasury growing — more ignored texts incoming",
+    "$GHOSTED holders rewarded — someone submitted honest proof",
+    "Receipt fee collected — 30% to treasury, 70% to protocol",
+    "Entropy reward distributed for verified evidence",
   ],
 };
 
+// ─── Timeline ────────────────────────────────────────────────────────────────
 router.get("/ghost/timeline", async (_req, res): Promise<void> => {
   const dbEvents = await db.select().from(ghostEventsTable)
     .orderBy(desc(ghostEventsTable.createdAt))
     .limit(20);
 
   if (dbEvents.length < 5) {
-    const types = ["DriftUpdated", "PhiUpdated", "EvidenceAdded", "Anomaly", "Locked", "GhostGained"] as const;
+    const types = ["DriftUpdated", "PhiUpdated", "EvidenceAdded", "TruthAssertion", "Locked", "GhostGained"] as const;
     const seedEvents = types.map((type) => ({
       type,
       message: GHOST_MESSAGES[type][0],
       value: Math.random() * 10,
     }));
-
     await db.insert(ghostEventsTable).values(seedEvents).onConflictDoNothing();
     const freshEvents = await db.select().from(ghostEventsTable)
       .orderBy(desc(ghostEventsTable.createdAt))
       .limit(20);
-
     res.json(GetGhostTimelineResponse.parse(freshEvents.map(e => ({
-      id: String(e.id),
-      type: e.type,
-      timestamp: e.createdAt.toISOString(),
-      message: e.message,
-      value: e.value ?? undefined,
+      id: String(e.id), type: e.type, timestamp: e.createdAt.toISOString(),
+      message: e.message, value: e.value ?? undefined,
     }))));
     return;
   }
-
   res.json(GetGhostTimelineResponse.parse(dbEvents.map(e => ({
-    id: String(e.id),
-    type: e.type,
-    timestamp: e.createdAt.toISOString(),
-    message: e.message,
-    value: e.value ?? undefined,
+    id: String(e.id), type: e.type, timestamp: e.createdAt.toISOString(),
+    message: e.message, value: e.value ?? undefined,
   }))));
 });
 
-// Top holders: % of 1B $GHOSTED supply
+// ─── Top Holders ──────────────────────────────────────────────────────────────
+// Balances = % of 1B $GHOSTED supply
 const TOP_HOLDERS = [
-  { rank: 1,  address: "0xDeAd...B33f", alias: "GhostWhale.eth",      balance: 50_000_000,  percentage: 0.05 },
-  { rank: 2,  address: "0xC0fF...eE01", alias: "ReadReceiptKing",     balance: 40_000_000,  percentage: 0.04 },
-  { rank: 3,  address: "0xAb5e...1337", alias: "LeftOnRead.eth",      balance: 30_000_000,  percentage: 0.03 },
-  { rank: 4,  address: "0xF4Ce...d00d", alias: "DetectionEntropy",    balance: 20_000_000,  percentage: 0.02 },
-  { rank: 5,  address: "0x0000...0069", alias: "EvidenceMaximalist",  balance: 15_000_000,  percentage: 0.015 },
-  { rank: 6,  address: "0xB4By...D01L", alias: "Anomaly7",            balance: 10_000_000,  percentage: 0.01 },
-  { rank: 7,  address: "0xC4Fe...BABE", alias: "NeverGhosted",        balance: 7_000_000,   percentage: 0.007 },
-  { rank: 8,  address: "0x5AaB...F00B", alias: "GaslightSlayer",      balance: 5_000_000,   percentage: 0.005 },
-  { rank: 9,  address: "0x1337...1337", alias: "EvidenceCollector",   balance: 4_000_000,   percentage: 0.004 },
-  { rank: 10, address: "0xD4D4...D4D4", alias: "Token70Holder",       balance: 1_000_000,   percentage: 0.001 },
+  { rank: 1,  address: "0xDeAd...B33f", alias: "GhostWhale.eth",     balance: 50_000_000, percentage: 0.05 },
+  { rank: 2,  address: "0xC0fF...eE01", alias: "ReadReceiptKing",    balance: 40_000_000, percentage: 0.04 },
+  { rank: 3,  address: "0xAb5e...1337", alias: "LeftOnRead.eth",     balance: 30_000_000, percentage: 0.03 },
+  { rank: 4,  address: "0xF4Ce...d00d", alias: "DetectionEntropy",   balance: 20_000_000, percentage: 0.02 },
+  { rank: 5,  address: "0x0000...0069", alias: "EvidenceMaximalist", balance: 15_000_000, percentage: 0.015 },
+  { rank: 6,  address: "0xB4By...D01L", alias: "BurnBagBurner",      balance: 10_000_000, percentage: 0.01 },
+  { rank: 7,  address: "0xC4Fe...BABE", alias: "NeverGhosted",       balance: 7_000_000,  percentage: 0.007 },
+  { rank: 8,  address: "0x5AaB...F00B", alias: "GaslightSlayer",     balance: 5_000_000,  percentage: 0.005 },
+  { rank: 9,  address: "0x1337...1337", alias: "HoldingForever",     balance: 4_000_000,  percentage: 0.004 },
+  { rank: 10, address: "0xD4D4...D4D4", alias: "Token70Holder",      balance: 1_000_000,  percentage: 0.001 },
 ];
 
 router.get("/ghost/holders", async (_req, res): Promise<void> => {
@@ -219,6 +240,7 @@ router.get("/ghost/holders", async (_req, res): Promise<void> => {
   res.json(response);
 });
 
+// ─── Submit Evidence ──────────────────────────────────────────────────────────
 router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
   const parsed = SubmitEvidenceBody.safeParse(req.body);
   if (!parsed.success) {
@@ -226,18 +248,20 @@ router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
     return;
   }
 
-  const { hash, weight, description, isProxy } = parsed.data;
+  const { hash, weight, description, isProxy, dramaType } = parsed.data;
 
+  // Duplicate check — each proof hash submittable only once
   const existing = await db.select().from(ghostEvidenceTable)
-    .where(eq(ghostEvidenceTable.hash, hash))
-    .limit(1);
-
+    .where(eq(ghostEvidenceTable.hash, hash)).limit(1);
   if (existing.length > 0) {
-    res.status(400).json({ error: "Evidence hash already submitted — each proof hash can only be logged once" });
+    res.status(400).json({ error: "Receipt already on record — each proof hash can only be submitted once. Generate a fresh hash." });
     return;
   }
 
-  await db.insert(ghostEvidenceTable).values({ hash, weight, description });
+  // Fee split: 30% treasury, 70% protocol (simulated)
+  const feePaid = GHOSTING_RECEIPT_FEE;
+  const treasuryCut = parseFloat((feePaid * TREASURY_SPLIT).toFixed(4));
+  const protocolCut = parseFloat((feePaid * (1 - TREASURY_SPLIT)).toFixed(4));
 
   const state = await ensureGhostState();
   const newEvidenceCounter = state.evidenceCounter + 1;
@@ -245,31 +269,56 @@ router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
   let newZeta: number;
   let zetaDelta: number;
   let eventMessage: string;
+  let ghostedReward = 0;
+  let newTruthAssertionCount = state.truthAssertionCount ?? 0;
+  let newEmotionalDebt = state.emotionalDebt ?? 0;
 
   if (isProxy) {
-    // Proxy evidence: raises zetaMismatch (hearsay/third-party report amplifies uncertainty)
-    // Matches contract: zetaMismatch += debtImpact / 2  where debtImpact = weight * proxyFactor / SCALE
+    // Proxy: raises zetaMismatch (hearsay amplifies uncertainty)
+    // Contract: zetaMismatch += debtImpact / 2
     zetaDelta = weight * 0.005;
     newZeta = Math.min(1.0, state.zeta + zetaDelta);
-    eventMessage = description ?? `Third-party receipt logged — ghosting signal intensified`;
+    newEmotionalDebt = Math.min(newEmotionalDebt + weight * 0.1, 1e6);
+    eventMessage = description
+      ? `[${dramaType ?? "Hearsay"}] ${description}`
+      : `Third-party ${dramaType ?? "receipt"} logged — mismatch signal raised`;
   } else {
-    // Direct evidence: reduces zetaMismatch (honest on-chain proof lowers drift)
-    // Matches contract: reduction = weight > zetaMismatch ? zetaMismatch : weight (if !locked)
+    // Direct: reduces zetaMismatch, earns $GHOSTED, increments truthAssertionCount
+    // Contract: ghostedRewarded = severity * 1,000 (capped at MAX_GHOSTED_PER_SUBMISSION)
     const zetaReduction = Math.min(weight * 0.01, state.zeta * 0.1);
     zetaDelta = -zetaReduction;
     newZeta = Math.max(0, state.zeta - zetaReduction);
-    eventMessage = description ?? `Direct receipt ${hash.slice(0, 8)}... logged — ghosting level reduced`;
+    ghostedReward = Math.min(weight * 1_000, MAX_GHOSTED_PER_SUB);
+    newTruthAssertionCount += 1;
+    eventMessage = description
+      ? `[${dramaType ?? "Direct"}] ${description}`
+      : `Direct proof verified — ${dramaType ?? "receipt"} logged, ${ghostedReward.toLocaleString()} $GHOSTED earned`;
   }
 
-  // $GHOSTED reward: direct evidence earns more (rewards honest detection entropy)
-  // Proxy earns zero — the contract doesn't mint for unverified hearsay
-  const ghostedReward = isProxy ? 0 : Math.floor(weight * 1000);
-
   const gaslightUnlocked = newEvidenceCounter > DENIAL_THRESHOLD;
-  const forkReady = newEvidenceCounter > FORK_THRESHOLD;
+  const forkReady        = newEvidenceCounter > FORK_THRESHOLD && state.escaped;
+
+  const newRevenueCollected = (state.totalRevenueCollected ?? 0) + feePaid;
+  const newTreasuryDistributed = (state.totalTreasuryDistributed ?? 0) + treasuryCut;
+
+  await db.insert(ghostEvidenceTable).values({
+    hash,
+    weight,
+    description,
+    dramaType: dramaType ?? null,
+    isProxy: isProxy ?? false,
+    ghostedRewarded: ghostedReward,
+  });
 
   await db.update(ghostStateTable)
-    .set({ evidenceCounter: newEvidenceCounter, zeta: newZeta })
+    .set({
+      evidenceCounter: newEvidenceCounter,
+      truthAssertionCount: newTruthAssertionCount,
+      emotionalDebt: newEmotionalDebt,
+      zeta: newZeta,
+      totalRevenueCollected: newRevenueCollected,
+      totalTreasuryDistributed: newTreasuryDistributed,
+    })
     .where(eq(ghostStateTable.id, state.id));
 
   await db.insert(ghostEventsTable).values({
@@ -278,37 +327,57 @@ router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
     value: zetaDelta,
   });
 
+  if (!isProxy) {
+    await db.insert(ghostEventsTable).values({
+      type: "TruthAssertion",
+      message: `Truth assertion #${newTruthAssertionCount} — verified direct receipt on chain`,
+      value: ghostedReward,
+    });
+  }
+
   // Milestone events
   if (gaslightUnlocked && state.evidenceCounter <= DENIAL_THRESHOLD) {
     await db.insert(ghostEventsTable).values({
       type: "GhostGained",
-      message: "10+ receipts logged — gaslight override unlocked. Emotional debt reducible.",
+      message: "10+ receipts logged — gaslight override unlocked. Emotional debt now reducible.",
       value: 0,
     });
   }
   if (forkReady && state.evidenceCounter <= FORK_THRESHOLD) {
     await db.insert(ghostEventsTable).values({
       type: "Forked",
-      message: "20+ receipts on record — fork threshold reached. 10 ETH fork reward unlocked.",
+      message: "20+ receipts + fully bounced — fork threshold reached. 10 ETH reward unlocked.",
       value: FORK_REWARD_ETH,
     });
   }
 
-  const responseMessage = isProxy
-    ? `Third-party receipt logged. Ghosting level raised by ${zetaDelta.toFixed(4)} — hearsay amplifies uncertainty.`
-    : `Direct receipt accepted. Ghosting level lowered by ${Math.abs(zetaDelta).toFixed(4)}. ${ghostedReward.toLocaleString()} $GHOSTED earned.${gaslightUnlocked ? " GASLIGHT OVERRIDE UNLOCKED." : ""}${forkReady ? " FORK THRESHOLD REACHED." : ""}`;
+  let msg = isProxy
+    ? `Third-party receipt logged. Ghosting signal raised by ${zetaDelta.toFixed(4)}. Fee: ${feePaid} ETH (${treasuryCut} ETH → treasury).`
+    : `Direct proof verified. Ghosting level lowered by ${Math.abs(zetaDelta).toFixed(4)}. Earned ${ghostedReward.toLocaleString()} $GHOSTED. Fee: ${feePaid} ETH split: ${treasuryCut} ETH treasury / ${protocolCut} ETH protocol.`;
+
+  if (gaslightUnlocked)  msg += " GASLIGHT OVERRIDE UNLOCKED.";
+  if (forkReady)         msg += " FORK THRESHOLD MET — 10 ETH REWARD TRIGGERED.";
 
   const response = SubmitEvidenceResponse.parse({
     success: true,
     evidenceCounter: newEvidenceCounter,
-    message: responseMessage,
+    truthAssertionCount: newTruthAssertionCount,
+    message: msg,
     newZeta,
     ghostedReward,
+    treasuryCut,
+    protocolCut,
     gaslightUnlocked,
     forkReady,
+    dramaType,
   });
 
   res.json(response);
+});
+
+// ─── Drama Types list ─────────────────────────────────────────────────────────
+router.get("/ghost/drama-types", (_req, res): void => {
+  res.json(DRAMA_TYPES);
 });
 
 export default router;

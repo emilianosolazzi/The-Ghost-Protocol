@@ -21,4 +21,10 @@ export interface GhostMetrics {
   heartbreakScore: number;
   /** Simulated counter of unread texts */
   readReceiptsIgnored: number;
+  /** Total ETH fees collected from receipt submissions */
+  totalRevenueCollected: number;
+  /** ETH sent to treasury (30% of fees) */
+  totalTreasuryDistributed: number;
+  /** Current cost to submit a receipt in ETH */
+  receiptFeeEth: number;
 }

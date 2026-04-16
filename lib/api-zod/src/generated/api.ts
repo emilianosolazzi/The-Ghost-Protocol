@@ -27,8 +27,9 @@ export const GetGhostStateResponse = zod.object({
   compromised: zod.boolean(),
   escaped: zod.boolean(),
   forked: zod.boolean(),
-  anomalyCount: zod.number(),
   evidenceCounter: zod.number(),
+  truthAssertionCount: zod.number().describe("Direct (non-proxy) receipts only"),
+  emotionalDebt: zod.number().describe("Accumulated emotional debt"),
   totalRewardsPaid: zod.number(),
   isQuarantined: zod.boolean(),
   scoreYou: zod.number(),
@@ -46,16 +47,13 @@ export const GetGhostMetricsResponse = zod.object({
   volume24h: zod.number(),
   holders: zod.number(),
   totalSupply: zod.number(),
-  ghostingIndex: zod
-    .number()
-    .describe("Percentage of people who have ghosted someone"),
+  ghostingIndex: zod.number().describe("Percentage of people who have ghosted someone"),
   rejectionRate: zod.number().describe("Global ghosting to rejection ratio"),
-  heartbreakScore: zod
-    .number()
-    .describe("Community-aggregated heartbreak level 0-100"),
-  readReceiptsIgnored: zod
-    .number()
-    .describe("Simulated counter of unread texts"),
+  heartbreakScore: zod.number().describe("Community-aggregated heartbreak level 0-100"),
+  readReceiptsIgnored: zod.number().describe("Simulated counter of unread texts"),
+  totalRevenueCollected: zod.number().describe("Total ETH fees collected from receipt submissions"),
+  totalTreasuryDistributed: zod.number().describe("ETH sent to treasury (30% of fees)"),
+  receiptFeeEth: zod.number().describe("Current cost to submit a receipt in ETH"),
 });
 
 /**
@@ -71,6 +69,7 @@ export const GetGhostTimelineResponseItem = zod.object({
     "Escaped",
     "Forked",
     "EvidenceAdded",
+    "TruthAssertion",
     "Anomaly",
     "GhostGained",
   ]),
@@ -98,17 +97,22 @@ export const GetTopHoldersResponse = zod.array(GetTopHoldersResponseItem);
  */
 export const SubmitEvidenceBody = zod.object({
   hash: zod.string().describe("Evidence hash (bytes32 as hex string)"),
-  weight: zod.number().describe("Evidence weight (1-100)"),
+  weight: zod.number().describe("Severity 1-100"),
   description: zod.string().optional().describe("Human readable description"),
-  isProxy: zod.boolean().optional().describe("True if evidence is from a third party (raises mismatch), false if direct (reduces ghosting level)"),
+  isProxy: zod.boolean().optional().describe("True if third-party (hearsay), false if direct proof"),
+  dramaType: zod.string().optional().describe("Category of ghosting drama"),
 });
 
 export const SubmitEvidenceResponse = zod.object({
   success: zod.boolean(),
   evidenceCounter: zod.number(),
+  truthAssertionCount: zod.number(),
   message: zod.string(),
   newZeta: zod.number(),
-  ghostedReward: zod.number().optional().describe("Simulated $GHOSTED tokens earned for this submission"),
-  gaslightUnlocked: zod.boolean().optional().describe("True when evidence counter exceeds denial threshold (10)"),
-  forkReady: zod.boolean().optional().describe("True when evidence counter exceeds fork threshold (20)"),
+  ghostedReward: zod.number().optional().describe("$GHOSTED tokens earned (capped at 100,000)"),
+  treasuryCut: zod.number().optional().describe("ETH sent to treasury (30% of 0.01 ETH fee)"),
+  protocolCut: zod.number().optional().describe("ETH kept in protocol (70%)"),
+  gaslightUnlocked: zod.boolean().optional(),
+  forkReady: zod.boolean().optional(),
+  dramaType: zod.string().optional(),
 });

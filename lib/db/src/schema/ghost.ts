@@ -26,7 +26,11 @@ export const ghostStateTable = pgTable("ghost_state", {
   forked: boolean("forked").notNull().default(false),
   anomalyCount: integer("anomaly_count").notNull().default(0),
   evidenceCounter: integer("evidence_counter").notNull().default(0),
+  truthAssertionCount: integer("truth_assertion_count").notNull().default(0),
+  emotionalDebt: real("emotional_debt").notNull().default(0),
   totalRewardsPaid: real("total_rewards_paid").notNull().default(0),
+  totalRevenueCollected: real("total_revenue_collected").notNull().default(0),
+  totalTreasuryDistributed: real("total_treasury_distributed").notNull().default(0),
   scoreYou: real("score_you").notNull().default(0),
   scoreHer: real("score_her").notNull().default(0),
   paused: boolean("paused").notNull().default(false),
@@ -40,6 +44,9 @@ export const ghostEvidenceTable = pgTable("ghost_evidence", {
   hash: text("hash").notNull().unique(),
   weight: real("weight").notNull(),
   description: text("description"),
+  dramaType: text("drama_type"),
+  isProxy: boolean("is_proxy").notNull().default(false),
+  ghostedRewarded: real("ghosted_rewarded").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
