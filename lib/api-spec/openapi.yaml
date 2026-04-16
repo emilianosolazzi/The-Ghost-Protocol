@@ -268,10 +268,13 @@ components:
           description: Evidence hash (bytes32 as hex string)
         weight:
           type: number
-          description: Evidence weight
+          description: Evidence weight (1-100)
         description:
           type: string
           description: Human readable description
+        isProxy:
+          type: boolean
+          description: True if evidence is from a third party (raises mismatch), false if direct (reduces ghosting level)
       required:
         - hash
         - weight
@@ -287,6 +290,15 @@ components:
           type: string
         newZeta:
           type: number
+        ghostedReward:
+          type: number
+          description: Simulated $GHOSTED tokens earned for this submission
+        gaslightUnlocked:
+          type: boolean
+          description: True when evidence counter exceeds denial threshold (10)
+        forkReady:
+          type: boolean
+          description: True when evidence counter exceeds fork threshold (20)
       required:
         - success
         - evidenceCounter

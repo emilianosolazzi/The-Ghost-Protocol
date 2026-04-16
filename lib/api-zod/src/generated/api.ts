@@ -98,8 +98,9 @@ export const GetTopHoldersResponse = zod.array(GetTopHoldersResponseItem);
  */
 export const SubmitEvidenceBody = zod.object({
   hash: zod.string().describe("Evidence hash (bytes32 as hex string)"),
-  weight: zod.number().describe("Evidence weight"),
+  weight: zod.number().describe("Evidence weight (1-100)"),
   description: zod.string().optional().describe("Human readable description"),
+  isProxy: zod.boolean().optional().describe("True if evidence is from a third party (raises mismatch), false if direct (reduces ghosting level)"),
 });
 
 export const SubmitEvidenceResponse = zod.object({
@@ -107,4 +108,7 @@ export const SubmitEvidenceResponse = zod.object({
   evidenceCounter: zod.number(),
   message: zod.string(),
   newZeta: zod.number(),
+  ghostedReward: zod.number().optional().describe("Simulated $GHOSTED tokens earned for this submission"),
+  gaslightUnlocked: zod.boolean().optional().describe("True when evidence counter exceeds denial threshold (10)"),
+  forkReady: zod.boolean().optional().describe("True when evidence counter exceeds fork threshold (20)"),
 });

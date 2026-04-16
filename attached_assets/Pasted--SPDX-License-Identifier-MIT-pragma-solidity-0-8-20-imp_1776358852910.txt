@@ -1,0 +1,600 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
+contract GHOSTED is ERC20 {
+    constructor(address initialOwner) ERC20("Ghosted", "GHOSTED") {
+        _mint(initialOwner, 1_000_000_000 * 10**18); // 1 billion total supply
+    }
+}
+
+contract GhostProtocol {
+    // ------------------------------------------------------------------
+    // CUSTOM ERRORS
+    // ------------------------------------------------------------------
+    error NotOracle();
+    error RateLimited();
+    error StateFrozen();
+    error InvalidAddress();
+    error InvalidAmount();
+    error InsufficientBalance();
+    error TransferFailed();
+    error Paused();
+    error FutureAction();
+    error InvalidVRFProof();
+    error VRFAlreadyClaimed();
+    error EvidenceChainBroken();
+
+    // ------------------------------------------------------------------
+    // CONSTANTS
+    // ------------------------------------------------------------------
+    uint256 public constant SCALE = 1e18;
+    uint256 public constant PHI_THRESHOLD = 1e18;
+    uint256 public constant OMEGA_THRESHOLD = 0.5e18;
+    uint256 public constant TAU_MAX = 1 days;
+    uint256 public constant DENIAL_THRESHOLD = 10;
+    uint256 public constant ORACLE_DELAY = 1 hours;
+    uint256 public constant MAX_DEBT = 1e36;
+    uint256 public constant MAX_REWARD = 100 ether;
+
+    // Default rewards
+    uint256 public lockReward = 1 ether;
+    uint256 public compromiseReward = 5 ether;
+    uint256 public escapeReward = 2 ether;
+    uint256 public forkReward = 10 ether;
+
+    // VRF + Merkle constants from the FULL JSON (verifiable subset)
+    bytes32 public constant VRF_OUTPUT = 0xc7e79260041d87c9bb0811faef24d75b74b898f41cba7f37118f617288c65ef594475c4fa0f9182f1fdef23bc6939d9934ae138fc0fc71d1b21503f2ef3750eb;
+    bytes32 public constant VRF_PUBLIC_KEY = 0xefbf8bccd60050aea23b0560589bfd8dd1b55f8ffe3e52e5f6017077ca152484;
+    bytes32 public constant MERKLE_ROOT = 0xc0bf4602062643725c8ada560c71ab6a897bc17abf0ee1d76cd85ab681aafa6e;
+    bytes32 public constant TRAIT_CFG_HASH = 0xe630a286d4f48332991a2bc7ee9d4988463fc635552b6a499f57120af29bea3a;
+    uint256 public constant VRF_TOKEN_ID = 70;
+    string public constant COLLECTION_ID = "Ghosted Memories";
+    string public constant HISTORIC_STORY = "Early Bitcoin Exchange Era - Block 91812, July 2010. First real market price discovery. Mt. Gox launch. 500 BTC UTXO. LEGENDARY - First Bitcoin transaction.";
+
+    // ------------------------------------------------------------------
+    // ACCESS CONTROL
+    // ------------------------------------------------------------------
+    address public oracle;
+    address public pendingOracle;
+    uint256 public lastOracleAction;
+    address public immutable ghostTreasury;
+    bool public paused;
+
+    // Memecoin reward token
+    GHOSTED public immutable ghostedToken;
+
+    modifier onlyOracle() {
+        if (msg.sender != oracle) revert NotOracle();
+        if (block.timestamp <= lastOracleAction + ORACLE_DELAY) revert RateLimited();
+        _;
+        lastOracleAction = block.timestamp;
+    }
+
+    modifier notEscaped() {
+        if (escaped) revert StateFrozen();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (paused) revert Paused();
+        _;
+    }
+
+    // ------------------------------------------------------------------
+    // CORE STATE
+    // ------------------------------------------------------------------
+    uint256 public zetaTemporal;
+    uint256 public zetaMismatch;
+    uint256 public zetaLock;
+    bool public locked;
+
+    uint256 public phi;
+    uint256 public rho;
+    uint256 public sigma;
+
+    uint256 public lastDriftUpdate;
+    uint256 public lastPhiUpdate;
+    uint256 public lastCouplingUpdate;
+
+    uint256 public scoreYou;
+    uint256 public scoreHer;
+
+    uint256 public divergence;
+    uint256 public overlap;
+
+    uint256 public anomalyCount;
+    uint256 public evidenceCounter;
+
+    struct Evidence {
+        uint256 timestamp;
+        uint256 weight;
+        bool proxyFlagged;
+        uint256 debtImpact;
+    }
+    mapping(bytes32 => Evidence) public evidenceLog;
+
+    uint256 public emotionalDebt;
+    uint256 public proxyFactor;
+
+    bool public compromised;
+    bool public escaped;
+    bool public forked;
+
+    // Reward tracking
+    bool private _paidLock;
+    bool private _paidCompromise;
+    bool private _paidEscape;
+    bool private _paidFork;
+    uint256 public totalRewardsPaid;
+
+    // VRF claim tracking
+    mapping(uint256 => bool) public vrfClaimed;
+
+    // ------------------------------------------------------------------
+    // EVENTS
+    // ------------------------------------------------------------------
+    event DriftUpdated(uint256 zeta);
+    event PhiUpdated(uint256 phi);
+    event Compromised();
+    event Locked(uint256 zetaLock);
+    event Escaped();
+    event Forked();
+    event EvidenceAdded(bytes32 indexed hash, bool proxyFlagged, uint256 debtImpact);
+    event Anomaly(uint256 count);
+    event DebtAccumulated(uint256 amount, string reason);
+    event WaveSynchronized(uint256 newOverlap, uint256 debtReduced);
+    event TruthAsserted(uint256 evidenceCount, uint256 debtReduced);
+    event VRFVerified(uint256 tokenId, address claimant, uint256 ghostedReward, string historicNote);
+    event OracleTransferInitiated(address indexed newOracle);
+    event OracleTransferred(address indexed oldOracle, address indexed newOracle);
+    event RhoUpdated(uint256 newRho);
+    event SigmaUpdated(uint256 newSigma);
+    event ScoresUpdated(uint256 scoreYou, uint256 scoreHer);
+    event GhostGained(string reason, uint256 amount);
+    event RewardAmountUpdated(string rewardType, uint256 newAmount);
+    event Paused();
+    event Unpaused();
+
+    // ------------------------------------------------------------------
+    // CONSTRUCTOR
+    // ------------------------------------------------------------------
+    constructor(
+        address _oracle,
+        address _ghostTreasury,
+        uint256 _zetaLock,
+        uint256 _rho,
+        uint256 _sigma
+    ) payable {
+        if (_oracle == address(0) || _ghostTreasury == address(0)) revert InvalidAddress();
+        if (_zetaLock == 0) revert InvalidAmount();
+
+        oracle = _oracle;
+        ghostTreasury = _ghostTreasury;
+        zetaLock = _zetaLock;
+        rho = _rho;
+        sigma = _sigma;
+        proxyFactor = 0;
+
+        ghostedToken = new GHOSTED(address(this)); // Deploy $GHOSTED memecoin, controlled by this contract
+
+        lastDriftUpdate = block.timestamp;
+        lastPhiUpdate = block.timestamp;
+        lastCouplingUpdate = block.timestamp;
+
+        if (msg.value > 0) {
+            _safeTransferETH(_ghostTreasury, msg.value);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // INTERNAL HELPERS
+    // ------------------------------------------------------------------
+    function _safeTransferETH(address to, uint256 amount) internal {
+        (bool sent, ) = to.call{value: amount}("");
+        if (!sent) revert TransferFailed();
+    }
+
+    function _payReward(string memory reason, uint256 amount) internal {
+        if (address(this).balance < amount) revert InsufficientBalance();
+        _safeTransferETH(ghostTreasury, amount);
+        totalRewardsPaid += amount;
+        emit GhostGained(reason, amount);
+    }
+
+    function _updateRewardAmount(uint256 current, uint256 newAmount) internal pure returns (uint256) {
+        if (newAmount > MAX_REWARD) revert InvalidAmount();
+        return newAmount;
+    }
+
+    function expApprox(uint256 x) internal pure returns (uint256) {
+        if (x >= 4 * SCALE) return 0;
+        uint256 x2 = (x * x) / SCALE;
+        uint256 x3 = (x2 * x) / SCALE;
+        uint256 x4 = (x3 * x) / SCALE;
+        uint256 result = SCALE;
+        result = result - x + (x2 / 2) - (x3 / 6) + (x4 / 24);
+        return result > SCALE ? SCALE : result;
+    }
+
+    function abs(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : b - a;
+    }
+
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    function waveRecovery(uint256 base) internal pure returns (uint256) {
+        return (base * 8) / 10;
+    }
+
+    // ------------------------------------------------------------------
+    // FUNDING
+    // ------------------------------------------------------------------
+    function fundGhost() external payable {
+        if (msg.value > 0) emit GhostGained("Funding", msg.value);
+    }
+
+    function oracleFund() external payable onlyOracle whenNotPaused {
+        if (msg.value > 0) emit GhostGained("OracleFunding", msg.value);
+    }
+
+    // ------------------------------------------------------------------
+    // ORACLE & CONFIG
+    // ------------------------------------------------------------------
+    function initiateOracleTransfer(address _newOracle) external onlyOracle {
+        if (_newOracle == address(0)) revert InvalidAddress();
+        pendingOracle = _newOracle;
+        emit OracleTransferInitiated(_newOracle);
+    }
+
+    function completeOracleTransfer() external {
+        if (msg.sender != pendingOracle) revert NotOracle();
+        address old = oracle;
+        oracle = pendingOracle;
+        pendingOracle = address(0);
+        emit OracleTransferred(old, oracle);
+    }
+
+    function setRho(uint256 _rho) external onlyOracle notEscaped whenNotPaused {
+        rho = _rho;
+        emit RhoUpdated(_rho);
+    }
+
+    function setSigma(uint256 _sigma) external onlyOracle notEscaped whenNotPaused {
+        sigma = _sigma;
+        emit SigmaUpdated(_sigma);
+    }
+
+    function setProxyFactor(uint256 _factor) external onlyOracle notEscaped whenNotPaused {
+        if (_factor > SCALE) revert InvalidAmount();
+        proxyFactor = _factor;
+    }
+
+    function updateScores(uint256 a, uint256 b) external onlyOracle notEscaped whenNotPaused {
+        scoreYou = a;
+        scoreHer = b;
+        emit ScoresUpdated(a, b);
+    }
+
+    function setLockReward(uint256 _amount) external onlyOracle {
+        lockReward = _updateRewardAmount(lockReward, _amount);
+        emit RewardAmountUpdated("Lock", lockReward);
+    }
+
+    function pause() external onlyOracle {
+        paused = true;
+        emit Paused();
+    }
+
+    function unpause() external onlyOracle {
+        paused = false;
+        emit Unpaused();
+    }
+
+    // ------------------------------------------------------------------
+    // ZETA & CORE LOGIC
+    // ------------------------------------------------------------------
+    function zeta() public view returns (uint256) {
+        uint256 z = zetaTemporal + zetaMismatch;
+        if (locked && z < zetaLock) return zetaLock;
+        return z > 1e36 ? 1e36 : z;
+    }
+
+    function updateDrift(
+        uint256 lambda,
+        uint256 kappa,
+        uint256 mismatchSum
+    ) external onlyOracle notEscaped whenNotPaused {
+        uint256 dt = block.timestamp - lastDriftUpdate;
+        if (dt == 0) return;
+
+        uint256 expVal = expApprox((kappa * dt) / SCALE);
+        uint256 temporal = (lambda * (SCALE - expVal)) / SCALE;
+
+        uint256 decay = (sigma * dt) / SCALE;
+        if (decay >= temporal) {
+            temporal = 0;
+        } else {
+            temporal -= decay;
+        }
+
+        uint256 dominant = temporal > mismatchSum ? temporal : mismatchSum;
+        if (dominant == 0 && (zetaTemporal + zetaMismatch) > 0) {
+            dominant = 1;
+        }
+
+        zetaTemporal += dominant;
+
+        if (!locked && zeta() > zetaLock) {
+            locked = true;
+            emit Locked(zetaLock);
+            if (!_paidLock && address(this).balance >= lockReward) {
+                _paidLock = true;
+                _payReward("Lock", lockReward);
+            }
+        }
+
+        lastDriftUpdate = block.timestamp;
+        emit DriftUpdated(zeta());
+    }
+
+    function updatePhi() external notEscaped whenNotPaused {
+        uint256 dt = block.timestamp - lastPhiUpdate;
+        if (dt == 0) return;
+
+        uint256 z = zeta();
+        uint256 delta = (z * rho * dt) / SCALE;
+        phi += delta;
+
+        if (phi > PHI_THRESHOLD && !compromised) {
+            compromised = true;
+            zetaTemporal += phi / SCALE;
+            emit Compromised();
+            if (!_paidCompromise && address(this).balance >= compromiseReward) {
+                _paidCompromise = true;
+                _payReward("Compromise", compromiseReward);
+            }
+        }
+
+        lastPhiUpdate = block.timestamp;
+        emit PhiUpdated(phi);
+    }
+
+    function updateCoupling() external notEscaped whenNotPaused {
+        uint256 dt = block.timestamp - lastCouplingUpdate;
+        if (dt == 0) return;
+
+        uint256 diff = abs(scoreYou, scoreHer);
+        uint256 common = min(scoreYou, scoreHer);
+
+        uint256 proxyBoost = (diff * proxyFactor) / SCALE;
+        divergence += (diff + proxyBoost) * dt;
+        overlap += common * dt;
+
+        if (diff > common) {
+            uint256 debtAdd = (diff * dt) / SCALE;
+            emotionalDebt = emotionalDebt + debtAdd > MAX_DEBT ? MAX_DEBT : emotionalDebt + debtAdd;
+            emit DebtAccumulated(debtAdd, "CouplingImbalance");
+        }
+
+        if (divergence > overlap && !escaped) {
+            escaped = true;
+            emit Escaped();
+            if (!_paidEscape && address(this).balance >= escapeReward) {
+                _paidEscape = true;
+                _payReward("Escape", escapeReward);
+            }
+        }
+
+        lastCouplingUpdate = block.timestamp;
+    }
+
+    function coupling() public view returns (uint256) {
+        uint256 sum = scoreYou + scoreHer;
+        if (sum == 0) return 0;
+        return (abs(scoreYou, scoreHer) * SCALE) / sum;
+    }
+
+    // ------------------------------------------------------------------
+    // DEBT & WAVE SYNCHRONIZATION
+    // ------------------------------------------------------------------
+    function synchronizeWave() external notEscaped whenNotPaused {
+        uint256 dt = block.timestamp - lastCouplingUpdate;
+        if (dt == 0) return;
+
+        if (overlap > divergence / 2) {
+            uint256 recovery = waveRecovery(overlap - divergence / 2);
+            overlap += recovery;
+            uint256 debtReduce = emotionalDebt / 4;
+            emotionalDebt -= debtReduce;
+            emit WaveSynchronized(overlap, debtReduce);
+        }
+
+        lastCouplingUpdate = block.timestamp;
+    }
+
+    // ------------------------------------------------------------------
+    // QUARANTINE & ANOMALIES
+    // ------------------------------------------------------------------
+    function omega() public view returns (uint256) {
+        uint256 z = zeta();
+        if (z == 0) return 0;
+        if (z > 1e36) return SCALE;
+        return (z * SCALE) / (SCALE + z);
+    }
+
+    function isQuarantined() external view returns (bool) {
+        return omega() > OMEGA_THRESHOLD;
+    }
+
+    function recordAction(uint256 actionTime) external notEscaped whenNotPaused {
+        if (actionTime > block.timestamp) revert FutureAction();
+
+        uint256 tau = block.timestamp - actionTime;
+        if (tau > TAU_MAX) {
+            uint256 inc = tau / 1 days;
+            anomalyCount += inc;
+            uint256 capped = anomalyCount > 1e12 ? 1e12 : anomalyCount;
+            zetaMismatch += capped / 10;
+            emit Anomaly(anomalyCount);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // EVIDENCE
+    // ------------------------------------------------------------------
+    function submitEvidence(bytes32 h, uint256 weight, bool isProxy) external notEscaped whenNotPaused {
+        if (weight == 0) revert InvalidAmount();
+
+        if (evidenceLog[h].timestamp == 0) {
+            uint256 debtImpact = isProxy ? (weight * proxyFactor) / SCALE : 0;
+
+            evidenceLog[h] = Evidence({
+                timestamp: block.timestamp,
+                weight: weight,
+                proxyFlagged: isProxy,
+                debtImpact: debtImpact
+            });
+
+            evidenceCounter++;
+            emit EvidenceAdded(h, isProxy, debtImpact);
+
+            if (isProxy) {
+                zetaMismatch += debtImpact / 2;
+            }
+
+            if (!locked) {
+                uint256 reduction = weight > zetaMismatch ? zetaMismatch : weight;
+                zetaMismatch -= reduction;
+            }
+        }
+    }
+
+    function verifyEvidenceChain(bytes32[] calldata hashes) external view returns (bool) {
+        for (uint256 i = 1; i < hashes.length; i++) {
+            if (evidenceLog[hashes[i]].timestamp < evidenceLog[hashes[i-1]].timestamp) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function canOverride() external view returns (bool) {
+        return evidenceCounter > DENIAL_THRESHOLD;
+    }
+
+    function resolveGaslight() external notEscaped whenNotPaused {
+        if (evidenceCounter <= DENIAL_THRESHOLD) revert InvalidAmount();
+
+        uint256 debtReduce = emotionalDebt / 3;
+        emotionalDebt -= debtReduce;
+        emit TruthAsserted(evidenceCounter, debtReduce);
+    }
+
+    function forkSystem() external onlyOracle {
+        if (!escaped) revert StateFrozen();
+        if (evidenceCounter <= DENIAL_THRESHOLD * 2) revert InvalidAmount();
+
+        forked = true;
+        emit Forked();
+
+        if (!_paidFork && address(this).balance >= forkReward) {
+            _paidFork = true;
+            _payReward("Fork", forkReward);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // VRF VERIFICATION + $GHOSTED MEMECOIN REWARD (from full JSON)
+    // ------------------------------------------------------------------
+    function verifyGhostedMemory(
+        bytes32 vrfOutput,
+        bytes32 vrfPublicKey,
+        bytes32[] calldata merkleProof,
+        bytes32 leaf
+    ) external whenNotPaused notEscaped returns (uint256 rewardAmount) {
+        if (vrfOutput != VRF_OUTPUT || vrfPublicKey != VRF_PUBLIC_KEY) revert InvalidVRFProof();
+        if (vrfClaimed[VRF_TOKEN_ID]) revert VRFAlreadyClaimed();
+
+        // Verify Merkle proof using OpenZeppelin (standard keccak256)
+        bool validProof = MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf);
+        if (!validProof) revert InvalidVRFProof();
+
+        // Legendary reward boost for Bitcoin Exchange Era token #70
+        uint256 baseReward = 250_000 * 10**18;
+        uint256 legendaryBoost = 750_000 * 10**18;
+        rewardAmount = baseReward + legendaryBoost;
+
+        // Scale with current emotional debt (narrative: "somebody pays")
+        if (emotionalDebt > SCALE) {
+            rewardAmount += (emotionalDebt * 2) / 100;
+        }
+
+        // Distribute $GHOSTED memecoin
+        ghostedToken.transfer(msg.sender, rewardAmount);
+
+        vrfClaimed[VRF_TOKEN_ID] = true;
+
+        emit VRFVerified(VRF_TOKEN_ID, msg.sender, rewardAmount, HISTORIC_STORY);
+
+        return rewardAmount;
+    }
+
+    // ------------------------------------------------------------------
+    // VIEWS & WITHDRAW
+    // ------------------------------------------------------------------
+    function ghostETHBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    function getSystemState() external view returns (
+        uint256 _zeta,
+        uint256 _phi,
+        uint256 _omega,
+        uint256 _coupling,
+        uint256 _emotionalDebt,
+        uint256 _proxyFactor,
+        bool _locked,
+        bool _compromised,
+        bool _escaped,
+        uint256 _ghostBalance,
+        bool _paused
+    ) {
+        return (
+            zeta(),
+            phi,
+            omega(),
+            coupling(),
+            emotionalDebt,
+            proxyFactor,
+            locked,
+            compromised,
+            escaped,
+            address(this).balance,
+            paused
+        );
+    }
+
+    function getLegendaryGhostedInfo() external view returns (
+        uint256 tokenId,
+        string memory collection,
+        string memory story,
+        bool claimed
+    ) {
+        return (VRF_TOKEN_ID, COLLECTION_ID, HISTORIC_STORY, vrfClaimed[VRF_TOKEN_ID]);
+    }
+
+    function withdrawETH(uint256 amount) external {
+        if (msg.sender != ghostTreasury) revert NotOracle();
+        if (amount > address(this).balance) revert InsufficientBalance();
+        _safeTransferETH(ghostTreasury, amount);
+    }
+
+    receive() external payable {
+        emit GhostGained("DirectFunding", msg.value);
+    }
+}

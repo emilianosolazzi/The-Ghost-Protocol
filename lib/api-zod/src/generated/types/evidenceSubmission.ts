@@ -9,8 +9,10 @@
 export interface EvidenceSubmission {
   /** Evidence hash (bytes32 as hex string) */
   hash: string;
-  /** Evidence weight */
+  /** Evidence weight (1-100) */
   weight: number;
   /** Human readable description */
   description?: string;
+  /** True if evidence is from a third party (raises mismatch), false if direct (reduces ghosting level) */
+  isProxy?: boolean;
 }

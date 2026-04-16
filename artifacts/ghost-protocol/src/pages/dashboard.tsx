@@ -1,5 +1,5 @@
-import { useGetGhostState, useGetGhostTimeline, useGetTopHolders, getGetGhostStateQueryKey, getGetGhostTimelineQueryKey, getGetTopHoldersQueryKey } from "@workspace/api-client-react";
-import { Activity, Skull, Zap, AlertTriangle, Clock, Users, Hash, ShieldAlert } from "lucide-react";
+import { useGetGhostState, useGetGhostMetrics, useGetGhostTimeline, useGetTopHolders, getGetGhostStateQueryKey, getGetGhostMetricsQueryKey, getGetGhostTimelineQueryKey, getGetTopHoldersQueryKey } from "@workspace/api-client-react";
+import { Activity, Skull, Zap, AlertTriangle, Clock, Users, Hash, ShieldAlert, Coins, TrendingUp, Lock } from "lucide-react";
 import { format } from "date-fns";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -11,15 +11,16 @@ const EVENT_LABELS: Record<string, string> = {
   Forked: "It's Over",
   EvidenceAdded: "Receipt Logged",
   Anomaly: "Red Flag Spotted",
-  GhostGained: "Ghost Bag Growing",
+  GhostGained: "$GHOSTED Bag Growing",
 };
 
 export function Dashboard() {
   const { data: state, isLoading: isLoadingState } = useGetGhostState({ query: { queryKey: getGetGhostStateQueryKey() } });
+  const { data: metrics, isLoading: isLoadingMetrics } = useGetGhostMetrics({ query: { queryKey: getGetGhostMetricsQueryKey() } });
   const { data: timeline, isLoading: isLoadingTimeline } = useGetGhostTimeline({ query: { queryKey: getGetGhostTimelineQueryKey() } });
   const { data: holders, isLoading: isLoadingHolders } = useGetTopHolders({ query: { queryKey: getGetTopHoldersQueryKey() } });
 
-  if (isLoadingState || isLoadingTimeline || isLoadingHolders) {
+  if (isLoadingState || isLoadingTimeline || isLoadingHolders || isLoadingMetrics) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-[50vh]">
         <div className="animate-pulse flex flex-col items-center gap-4">
@@ -31,6 +32,12 @@ export function Dashboard() {
   }
 
   if (!state) return null;
+
+  // Evidence threshold progress
+  const gaslightUnlocked = state.evidenceCounter > 10;
+  const forkReady = state.evidenceCounter > 20;
+  const gaslightProgress = Math.min((state.evidenceCounter / 10) * 100, 100);
+  const forkProgress = Math.min((state.evidenceCounter / 20) * 100, 100);
 
   return (
     <div className="container mx-auto px-4 py-12 flex flex-col gap-8">
@@ -52,6 +59,34 @@ export function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Token metrics strip */}
+      {metrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-card border border-white/5 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">$GHOSTED PRICE</p>
+            <p className="text-xl font-black">${metrics.price.toFixed(6)}</p>
+            <p className={`font-mono text-xs mt-1 ${metrics.priceChange24h >= 0 ? 'text-primary' : 'text-destructive'}`}>
+              {metrics.priceChange24h >= 0 ? '+' : ''}{metrics.priceChange24h.toFixed(2)}% 24h
+            </p>
+          </div>
+          <div className="bg-card border border-white/5 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">MARKET CAP</p>
+            <p className="text-xl font-black">${(metrics.marketCap / 1_000_000).toFixed(1)}M</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">420M narrative</p>
+          </div>
+          <div className="bg-card border border-white/5 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">TOTAL SUPPLY</p>
+            <p className="text-xl font-black">1B</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">$GHOSTED tokens</p>
+          </div>
+          <div className="bg-card border border-white/5 rounded-lg p-4">
+            <p className="font-mono text-xs text-muted-foreground mb-1">HOLDERS</p>
+            <p className="text-xl font-black">{metrics.holders.toLocaleString()}</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">wallets ghosted</p>
+          </div>
+        </div>
+      )}
 
       {/* Primary Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -82,19 +117,19 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Status Panel */}
+        {/* Status + Rewards Panel */}
         <div className="flex flex-col gap-4">
           <div className="bg-card border border-white/5 rounded-xl p-6 flex flex-col gap-6">
             <h3 className="font-bold font-mono text-sm text-muted-foreground">RELATIONSHIP STATUS</h3>
             
-            <div className="flex flex-col gap-4">
-              <StatusFlag label="STUCK ON THEM" active={state.locked} />
-              <StatusFlag label="FEELINGS EXPOSED" active={state.compromised} />
-              <StatusFlag label="THEY BOUNCED" active={state.escaped} />
-              <StatusFlag label="IT'S OFFICIALLY OVER" active={state.forked} />
+            <div className="flex flex-col gap-3">
+              <StatusFlag label="STUCK ON THEM" active={state.locked} reward="1 ETH" />
+              <StatusFlag label="FEELINGS EXPOSED" active={state.compromised} reward="5 ETH" />
+              <StatusFlag label="THEY BOUNCED" active={state.escaped} reward="2 ETH" />
+              <StatusFlag label="IT'S OFFICIALLY OVER" active={state.forked} reward="10 ETH" />
             </div>
             
-            <div className="pt-6 border-t border-white/5 grid grid-cols-2 gap-4">
+            <div className="pt-4 border-t border-white/5 grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-muted-foreground font-mono mb-1">RECEIPTS</p>
                 <p className="text-2xl font-black">{state.evidenceCounter}</p>
@@ -105,10 +140,60 @@ export function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* Detection entropy thresholds */}
+          <div className="bg-card border border-white/5 rounded-xl p-6 flex flex-col gap-4">
+            <h3 className="font-bold font-mono text-sm text-muted-foreground flex items-center gap-2">
+              <Lock className="w-3 h-3" /> DETECTION ENTROPY
+            </h3>
+            
+            <div>
+              <div className="flex justify-between font-mono text-xs mb-2">
+                <span className={gaslightUnlocked ? 'text-primary' : 'text-muted-foreground'}>
+                  {gaslightUnlocked ? '✓ GASLIGHT OVERRIDE' : 'GASLIGHT OVERRIDE'}
+                </span>
+                <span>{Math.min(state.evidenceCounter, 10)}/10</span>
+              </div>
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${gaslightProgress}%` }} />
+              </div>
+              <p className="font-mono text-xs text-muted-foreground mt-1">10+ receipts → emotional debt reducible by 33%</p>
+            </div>
+
+            <div>
+              <div className="flex justify-between font-mono text-xs mb-2">
+                <span className={forkReady ? 'text-primary' : 'text-muted-foreground'}>
+                  {forkReady ? '✓ FORK READY' : 'FORK THRESHOLD'}
+                </span>
+                <span>{Math.min(state.evidenceCounter, 20)}/20</span>
+              </div>
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${forkProgress}%` }} />
+              </div>
+              <p className="font-mono text-xs text-muted-foreground mt-1">20+ receipts → fork system, 10 ETH released</p>
+            </div>
+          </div>
+
+          {/* VRF Legendary */}
+          <div className="bg-card border border-primary/20 rounded-xl p-6 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-primary" />
+              <h3 className="font-bold font-mono text-sm text-primary">VRF LEGENDARY REWARD</h3>
+            </div>
+            <p className="font-mono text-xs text-muted-foreground">Token #70 — "Ghosted Memories" collection. Block 91812, Bitcoin Exchange Era, July 2010. First verified ghost on-chain.</p>
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <span className="font-mono text-xs text-muted-foreground">REWARD</span>
+              <span className="font-mono text-sm font-black text-primary">1,000,000 $GHOSTED</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-muted-foreground">STATUS</span>
+              <span className="font-mono text-xs text-yellow-400">UNCLAIMED</span>
+            </div>
+          </div>
         </div>
 
         {/* Timeline */}
-        <div className="lg:col-span-2 bg-card border border-white/5 rounded-xl p-6 flex flex-col h-[500px]">
+        <div className="lg:col-span-2 bg-card border border-white/5 rounded-xl p-6 flex flex-col h-[600px]">
           <div className="flex items-center gap-2 mb-6">
             <Clock className="w-4 h-4 text-primary" />
             <h3 className="font-bold font-mono text-sm text-muted-foreground">THE TEA — WHAT HAPPENED</h3>
@@ -140,11 +225,35 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* TGE Allocation */}
+      <div className="bg-card border border-white/5 rounded-xl p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <TrendingUp className="w-4 h-4 text-primary" />
+          <h3 className="font-bold font-mono text-sm text-muted-foreground">$GHOSTED TGE ALLOCATION — 1,000,000,000 TOKENS</h3>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {[
+            { label: "Community & Entropy Rewards", pct: "50%", tokens: "500M", color: "bg-primary" },
+            { label: "Liquidity Pool (DEX)", pct: "20%", tokens: "200M", color: "bg-purple-400" },
+            { label: "Ecosystem & Development", pct: "15%", tokens: "150M", color: "bg-violet-500" },
+            { label: "Team (12-month lock)", pct: "10%", tokens: "100M", color: "bg-fuchsia-500" },
+            { label: "VRF Legendary & Airdrops", pct: "5%", tokens: "50M", color: "bg-pink-500" },
+          ].map((alloc) => (
+            <div key={alloc.label} className="flex flex-col gap-2">
+              <div className={`h-1.5 rounded-full ${alloc.color}`} />
+              <p className="text-2xl font-black">{alloc.pct}</p>
+              <p className="font-mono text-xs text-muted-foreground">{alloc.label}</p>
+              <p className="font-mono text-xs text-primary">{alloc.tokens} $GHOSTED</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Top Holders */}
       <div className="bg-card border border-white/5 rounded-xl overflow-hidden">
         <div className="p-6 border-b border-white/5 flex items-center gap-2">
           <Users className="w-4 h-4 text-primary" />
-          <h3 className="font-bold font-mono text-sm text-muted-foreground">BIGGEST GHOST HOLDERS</h3>
+          <h3 className="font-bold font-mono text-sm text-muted-foreground">BIGGEST $GHOSTED HOLDERS</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm font-mono">
@@ -152,7 +261,7 @@ export function Dashboard() {
               <tr>
                 <th className="p-4 font-normal">RANK</th>
                 <th className="p-4 font-normal">NAME / WALLET</th>
-                <th className="p-4 font-normal">$GHOST HELD</th>
+                <th className="p-4 font-normal">$GHOSTED HELD</th>
                 <th className="p-4 font-normal">% OF SUPPLY</th>
                 <th className="p-4 font-normal">LAST SEEN</th>
               </tr>
@@ -169,7 +278,7 @@ export function Dashboard() {
                       </span>
                     </div>
                   </td>
-                  <td className="p-4">{holder.balance.toLocaleString()} $GHOST</td>
+                  <td className="p-4">{holder.balance.toLocaleString()} $GHOSTED</td>
                   <td className="p-4">{(holder.percentage * 100).toFixed(2)}%</td>
                   <td className="p-4 text-muted-foreground">
                     {format(new Date(holder.lastActivity), "MMM d, HH:mm")}
@@ -200,10 +309,13 @@ function MetricCard({ title, value, icon, description }: { title: string, value:
   );
 }
 
-function StatusFlag({ label, active }: { label: string, active: boolean }) {
+function StatusFlag({ label, active, reward }: { label: string, active: boolean, reward: string }) {
   return (
     <div className="flex items-center justify-between p-3 rounded-lg border border-white/5 bg-white/[0.01]">
-      <span className="font-mono text-sm">{label}</span>
+      <div className="flex flex-col">
+        <span className="font-mono text-xs">{label}</span>
+        <span className="font-mono text-xs text-muted-foreground">{reward} reward</span>
+      </div>
       <div className={`px-2 py-1 rounded text-xs font-bold font-mono ${active ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-muted-foreground'}`}>
         {active ? 'YES' : 'NO'}
       </div>

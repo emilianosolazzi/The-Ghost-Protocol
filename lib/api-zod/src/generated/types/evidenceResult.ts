@@ -11,4 +11,10 @@ export interface EvidenceResult {
   evidenceCounter: number;
   message: string;
   newZeta: number;
+  /** Simulated $GHOSTED tokens earned for this submission */
+  ghostedReward?: number;
+  /** True when evidence counter exceeds denial threshold (10) */
+  gaslightUnlocked?: boolean;
+  /** True when evidence counter exceeds fork threshold (20) */
+  forkReady?: boolean;
 }

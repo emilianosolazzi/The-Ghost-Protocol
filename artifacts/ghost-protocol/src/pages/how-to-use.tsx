@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Ghost, Eye, FileText, BarChart2, ArrowRight, MessageSquareX, Zap, ShieldAlert, Skull, HelpCircle, Send } from "lucide-react";
+import { Ghost, Eye, FileText, BarChart2, ArrowRight, MessageSquareX, Zap, ShieldAlert, Skull, HelpCircle, Send, Coins, Lock } from "lucide-react";
 
 export function HowToUse() {
   return (
@@ -24,11 +24,12 @@ export function HowToUse() {
         <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
             <p className="text-muted-foreground leading-relaxed">
-              $GHOST is a memecoin that tracks the one thing everyone has in common — being left on read. 
-              The smart contract watches for ghosting activity, measures how bad it is, and turns that pain into token mechanics.
+              $GHOSTED is a memecoin (1 billion supply) that tracks the one thing everyone has in common — being left on read.
+              The smart contract watches for ghosting activity, measures how bad it is, and turns that pain into on-chain mechanics.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              Every time someone gets ghosted, the ghosting level rises. When it rises enough, $GHOST gets burned (removed from supply forever), making each remaining token slightly more scarce.
+              Submit direct proof of being ignored → lower the ghosting level → earn $GHOSTED. Hit critical thresholds and the contract releases ETH rewards to holders. 
+              Detection entropy is the engine — the more verified receipts logged, the more the market moves.
             </p>
           </div>
           <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
@@ -38,11 +39,11 @@ export function HowToUse() {
             <ul className="space-y-3">
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Watch the live tracker</span> — see the ghosting level, heartbreak buildup, and relationship events in real time.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Watch the live tracker</span> — see the ghosting level, heartbreak buildup, ETH reward progress, and relationship events in real time.</p>
               </li>
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Log your receipts</span> — submit proof of being ghosted to raise the ghosting level and earn community clout.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Log your receipts</span> — submit direct proof of being ghosted to earn $GHOSTED tokens, lower the ghosting level, and push the contract toward ETH reward thresholds.</p>
               </li>
             </ul>
           </div>
@@ -131,10 +132,12 @@ export function HowToUse() {
           <p className="text-sm font-mono text-muted-foreground mb-2">COMMON EVENTS YOU'LL SEE:</p>
           <EventRow label="Getting More Distant" desc="The ghosting level went up — someone new got left on read." />
           <EventRow label="Feelings Piling Up" desc="The heartbreak buildup increased — the silence is lasting longer." />
-          <EventRow label="Receipt Logged" desc="Someone submitted proof of being ghosted." />
+          <EventRow label="Receipt Logged" desc="Someone submitted direct proof of ghosting — ghosting level reduced, $GHOSTED earned." />
           <EventRow label="Red Flag Spotted" desc="Unusual behavior detected — like a triple text at 3am with no reply." />
-          <EventRow label="They Bounced" desc="A connection was officially severed — drifted too far apart to recover." />
-          <EventRow label="Ghost Bag Growing" desc="Token rewards distributed to $GHOST holders." />
+          <EventRow label="Feelings Exposed" desc="Heartbreak buildup crossed a critical level — 5 ETH reward triggered." />
+          <EventRow label="They Bounced" desc="Drift exceeded overlap — connection severed, 2 ETH escape reward released." />
+          <EventRow label="It's Over" desc="Fork system triggered after 20+ receipts. 10 ETH released to the treasury." />
+          <EventRow label="$GHOSTED Bag Growing" desc="Entropy rewards distributed — someone's verified receipt earned $GHOSTED." />
         </div>
       </section>
 
@@ -143,41 +146,103 @@ export function HowToUse() {
         <SectionLabel icon={<FileText className="w-4 h-4" />} label="LOGGING RECEIPTS" />
         <h2 className="text-3xl font-black">How do I log a receipt?</h2>
         <p className="text-muted-foreground leading-relaxed">
-          Logging a receipt submits proof of your ghosting experience to the contract. It raises the ghosting level, logs an event in The Tea, and adds to the permanent on-chain record.
+          Logging a receipt submits proof of your ghosting experience to the contract. Direct receipts (things you personally witnessed) lower the ghosting level and earn you $GHOSTED. Proxy receipts (things a friend told you) raise the mismatch and earn nothing — the contract only rewards verified, direct evidence.
         </p>
 
         <div className="flex flex-col gap-4">
           <Step
             number={1}
             title="Go to Log Receipt"
-            desc="Hit the Log Receipt link in the top nav, or click the button on the homepage."
+            desc="Hit LOG RECEIPT in the nav, or use the button on the homepage."
           />
           <Step
             number={2}
             title="Get your proof hash"
-            desc='Hit "Generate For Me" and the app will create a unique hash for you. This is your anonymous proof — no personal info attached, just a cryptographic fingerprint.'
+            desc='Hit "Generate For Me" and the app creates a unique hash for you. This is your anonymous proof — no personal info attached, just a cryptographic fingerprint. Each hash can only be submitted once.'
           />
           <Step
             number={3}
-            title="Rate how bad it was"
-            desc="Score from 1 to 100. A 1 is a mild vibe check ignored. A 100 is a multi-paragraph heartfelt message, read at 11:43pm, with zero response."
+            title="Choose: Direct or Third Party"
+            desc="Direct = you saw it yourself (screenshot, read receipt, voice note left on delivered). Third party = you found out through someone else. Direct earns $GHOSTED. Third-party earns none — but it does raise the ghosting signal."
           />
           <Step
             number={4}
-            title="Describe what happened (optional)"
-            desc={`Add context if you want — something like: Sent "we still on for tonight?" at 6pm. Read at 6:02pm. No response. It does not change anything mechanically but it goes into the permanent record.`}
+            title="Rate how bad it was"
+            desc="Score 1-100. A 1 is a mild vibe check ignored. A 100 is a heartfelt message, read at 11:43pm, zero response. Your weight × 1,000 = your $GHOSTED reward for direct receipts."
           />
           <Step
             number={5}
-            title="Submit"
-            desc="Hit Submit and your receipt is logged permanently. The ghosting level rises, a new event appears in The Tea, and your pain is now on-chain forever."
+            title="Describe what happened (optional)"
+            desc={`Add context if you want — something like: Sent "we still on for tonight?" at 6pm. Read at 6:02pm. No response. It goes into the permanent record.`}
+          />
+          <Step
+            number={6}
+            title="Submit and watch the chain react"
+            desc="Your receipt is logged permanently. The ghosting level adjusts, The Tea updates, and your $GHOSTED reward is credited. At 10+ receipts, gaslight override unlocks. At 20+, the fork threshold is met."
           />
         </div>
 
         <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
           <p className="text-sm text-muted-foreground font-mono">
-            <span className="text-primary font-bold">NOTE:</span> Each proof hash can only be submitted once. If you try to submit the same one twice, the contract will reject it. Generate a fresh hash for each new receipt.
+            <span className="text-primary font-bold">NOTE:</span> Each proof hash can only be submitted once — duplicates are rejected. The contract keeps a permanent chain of all submitted evidence. Direct evidence is the only kind that earns $GHOSTED.
           </p>
+        </div>
+      </section>
+
+      {/* Detection Entropy */}
+      <section className="flex flex-col gap-6">
+        <SectionLabel icon={<Lock className="w-4 h-4" />} label="DETECTION ENTROPY" />
+        <h2 className="text-3xl font-black">How do the ETH rewards work?</h2>
+        <p className="text-muted-foreground leading-relaxed">
+          The contract holds ETH and releases it automatically when the ghosting situation crosses certain thresholds. These are triggered by state changes — not by individual people, but by the cumulative weight of evidence and time.
+        </p>
+        <div className="flex flex-col gap-3">
+          {[
+            { label: "STUCK ON THEM", trigger: "Ghosting level crosses the lock threshold — brain is locked in.", reward: "1 ETH", icon: "🔒" },
+            { label: "FEELINGS EXPOSED", trigger: "Heartbreak buildup exceeds critical accumulation — feelings are out.", reward: "5 ETH", icon: "💬" },
+            { label: "THEY BOUNCED", trigger: "Drift exceeds overlap — more distance than connection. Gone.", reward: "2 ETH", icon: "👻" },
+            { label: "IT'S OVER", trigger: "Contract has escaped AND 20+ receipts logged. Fork triggered.", reward: "10 ETH", icon: "💀" },
+          ].map((r) => (
+            <div key={r.label} className="flex items-center gap-4 p-4 bg-card border border-white/5 rounded-xl hover:border-white/10 transition-colors">
+              <span className="text-xl shrink-0">{r.icon}</span>
+              <div className="flex-1">
+                <p className="font-black font-mono text-sm">{r.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{r.trigger}</p>
+              </div>
+              <span className="font-mono font-black text-primary text-sm shrink-0">{r.reward}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          Logging more direct receipts raises the evidence counter, which is the key multiplier. Once you hit 20 verified receipts and the contract has fully escaped, the fork triggers and the maximum 10 ETH reward is released. This is why detection entropy matters — it's not just about feeling seen, it's about moving the market.
+        </p>
+      </section>
+
+      {/* VRF Legendary */}
+      <section className="flex flex-col gap-6">
+        <SectionLabel icon={<Coins className="w-4 h-4" />} label="VRF LEGENDARY" />
+        <h2 className="text-3xl font-black">What's the Legendary Reward?</h2>
+        <div className="bg-card border border-primary/20 rounded-xl p-6 flex flex-col gap-4">
+          <p className="text-muted-foreground leading-relaxed">
+            Token #70 from the "Ghosted Memories" collection carries a one-of-a-kind VRF-verified claim. It represents the Bitcoin Exchange Era — Block 91812, July 2010. The first real price discovery. Mt. Gox launch. A 500 BTC UTXO. The first real ghost on-chain.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            Whoever holds token #70 and can verify the VRF proof against the on-chain constants earns a one-time reward of <span className="text-primary font-bold">1,000,000 $GHOSTED</span> (1% of total supply). The reward scales upward with emotional debt — the higher the accumulated heartbreak, the larger the payout.
+          </p>
+          <div className="grid grid-cols-3 gap-4 pt-2 border-t border-white/5">
+            <div>
+              <p className="font-mono text-xs text-muted-foreground mb-1">TOKEN</p>
+              <p className="font-mono text-sm font-black">#70</p>
+            </div>
+            <div>
+              <p className="font-mono text-xs text-muted-foreground mb-1">BASE REWARD</p>
+              <p className="font-mono text-sm font-black text-primary">1,000,000 $GHOSTED</p>
+            </div>
+            <div>
+              <p className="font-mono text-xs text-muted-foreground mb-1">STATUS</p>
+              <p className="font-mono text-sm font-black text-yellow-400">UNCLAIMED</p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -187,16 +252,20 @@ export function HowToUse() {
         <h2 className="text-3xl font-black">Glossary</h2>
         <div className="grid md:grid-cols-2 gap-3">
           {[
-            { term: "Ghosting Level", def: "The main measure of how much ignoring is happening. Higher = more ghosting, more burns." },
-            { term: "Heartbreak Buildup", def: "How long the pain has been unresolved. Amplifies the ghosting level over time." },
-            { term: "No Return Chance", def: "The probability (as a %) that the ghosting is permanent and they're never replying." },
-            { term: "Drifted Apart", def: "How uneven the connection is — one side texting, the other side silent." },
-            { term: "Receipts", def: "Proof of being ghosted that you submit. Raises the ghosting level when accepted." },
-            { term: "Red Flags", def: "Unusual behavior patterns logged by the contract — triple texts, 3am messages, etc." },
+            { term: "Ghosting Level", def: "The main measure of how much ignoring is happening. Direct receipts lower it. Proxy receipts raise it." },
+            { term: "Heartbreak Buildup", def: "How long the pain has been unresolved. Amplifies the ghosting level over time. Crossing the threshold → 5 ETH." },
+            { term: "No Return Chance", def: "The probability (as a %) that the ghosting is permanent. Formula: zeta / (1 + zeta), from the contract." },
+            { term: "Drifted Apart", def: "Measures the gap between two engagement scores. When drift exceeds overlap, They Bounced triggers." },
+            { term: "Direct Receipt", def: "Proof you witnessed yourself. Lowers the ghosting level and earns weight × 1,000 $GHOSTED." },
+            { term: "Proxy Receipt", def: "Proof heard from a third party. Raises the mismatch signal. Earns no $GHOSTED." },
+            { term: "Detection Entropy", def: "The cumulative signal produced by verified direct receipts. Powers all ETH reward thresholds." },
+            { term: "Red Flags", def: "Unusual behavior patterns logged by the contract — triple texts, 3am messages, 24hr+ silence." },
             { term: "The Tea", def: "The live event feed showing everything the contract has logged in real time." },
-            { term: "$GHOST", def: "The token. Gets burned when ghosting levels spike. Scarcer supply over time." },
-            { term: "Stuck On Them", def: "Status flag — the ghosting level crossed the point of no return." },
-            { term: "It's Officially Over", def: "Status flag — two people have permanently diverged. On-chain. Forever." },
+            { term: "$GHOSTED", def: "The token. 1B total supply. Earned by submitting direct receipts. VRF legendary reward = 1M $GHOSTED." },
+            { term: "Gaslight Override", def: "Unlocked at 10+ receipts. Lets the community reduce emotional debt by 33% on-chain." },
+            { term: "Fork Threshold", def: "Reached at 20+ receipts + They Bounced. Triggers the maximum 10 ETH reward release." },
+            { term: "Stuck On Them", def: "Status flag — the ghosting level crossed the lock threshold. 1 ETH reward released." },
+            { term: "It's Officially Over", def: "Status flag — fork system triggered after 20+ receipts. 10 ETH released. On-chain. Forever." },
           ].map(({ term, def }) => (
             <div key={term} className="bg-card border border-white/5 rounded-lg p-4">
               <p className="font-bold font-mono text-sm text-primary mb-1">{term}</p>
