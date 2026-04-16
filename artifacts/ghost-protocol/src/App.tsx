@@ -7,6 +7,7 @@ import { Layout } from "@/components/layout";
 import { Landing } from "@/pages/landing";
 import { Dashboard } from "@/pages/dashboard";
 import { Evidence } from "@/pages/evidence";
+import { HowToUse } from "@/pages/how-to-use";
 
 const queryClient = new QueryClient();
 
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/evidence" component={Evidence} />
+      <Route path="/how-to-use" component={HowToUse} />
       <Route component={NotFound} />
     </Switch>
   );
