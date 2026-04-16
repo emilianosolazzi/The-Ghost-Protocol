@@ -102,40 +102,40 @@ router.get("/ghost/metrics", async (_req, res): Promise<void> => {
 
 const GHOST_MESSAGES: Record<string, string[]> = {
   DriftUpdated: [
-    "Temporal drift increased — connection weakening",
-    "Zeta threshold approaching critical",
-    "Signal decay detected in coupling matrix",
+    "Getting more distant — they haven't replied",
+    "Ghosting level rising, texting window closing",
+    "Silence detected, drift increasing",
   ],
   PhiUpdated: [
-    "Phase accumulation exceeding baseline",
-    "Phi oscillating beyond tolerance",
-    "Resonance pattern shifting",
+    "Feelings piling up with no outlet",
+    "Heartbreak building — still no response",
+    "You keep checking your phone, nothing changes",
   ],
   Compromised: [
-    "Protocol integrity compromised",
-    "Defense layer breached — emotions detected",
+    "You texted back too fast — feelings exposed",
+    "Double text detected — the heart got involved",
   ],
   Locked: [
-    "State locked — no escape protocol available",
-    "Zeta lock engaged — you cannot unsee this",
+    "You're stuck on them — can't move on",
+    "Brain locked in — you cannot unsee the read receipt",
   ],
   Escaped: [
-    "Escape vector detected — subject has left the chat",
-    "Connection severed by external force",
+    "They have officially left the chat",
+    "They bounced — no explanation given",
   ],
   EvidenceAdded: [
-    "New evidence submitted to the chain",
-    "Screenshot received and logged",
-    "Exhibit added to the case file",
+    "Read receipt logged to the chain",
+    "Screenshot accepted as proof",
+    "Your receipt is now permanently on record",
   ],
   Anomaly: [
-    "Anomalous behavior detected — triple texting observed",
-    "Temporal anomaly: message sent at 3am",
-    "Behavioral pattern deviation logged",
+    "Red flag: triple text with zero response",
+    "Red flag: message sent at 3am — no reply",
+    "Unusual silence pattern detected — they saw it",
   ],
   GhostGained: [
-    "Protocol funded — ghost rewards distributed",
-    "Treasury balance increased",
+    "Ghost holders rewarded — someone just got ghosted",
+    "Treasury growing — more ignored texts incoming",
   ],
 };
 

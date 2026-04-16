@@ -24,11 +24,11 @@ export function Layout({ children }: { children: ReactNode }) {
           <nav className="flex items-center gap-6 text-sm">
             <Link href="/dashboard" className={`flex items-center gap-2 transition-colors hover:text-primary ${location === '/dashboard' ? 'text-primary' : 'text-muted-foreground'}`}>
               <Activity className="w-4 h-4" />
-              <span className="hidden sm:inline">DASHBOARD</span>
+              <span className="hidden sm:inline">LIVE TRACKER</span>
             </Link>
             <Link href="/evidence" className={`flex items-center gap-2 transition-colors hover:text-primary ${location === '/evidence' ? 'text-primary' : 'text-muted-foreground'}`}>
               <FileWarning className="w-4 h-4" />
-              <span className="hidden sm:inline">EVIDENCE</span>
+              <span className="hidden sm:inline">LOG RECEIPT</span>
             </Link>
           </nav>
         </div>

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 const formSchema = z.object({
-  hash: z.string().min(1, "Hash is required").regex(/^0x[a-fA-F0-9]{64}$/, "Must be a valid bytes32 hex string (0x...)"),
+  hash: z.string().min(1, "A proof hash is required").regex(/^0x[a-fA-F0-9]{64}$/, "Must be a valid proof hash starting with 0x"),
   weight: z.coerce.number().min(1).max(100),
   description: z.string().optional()
 });
@@ -37,7 +37,7 @@ export function Evidence() {
       onSuccess: (result) => {
         if (result.success) {
           toast({
-            title: "Evidence Submitted",
+            title: "Receipt Logged",
             description: result.message,
           });
           form.reset();
@@ -46,16 +46,16 @@ export function Evidence() {
         } else {
           toast({
             variant: "destructive",
-            title: "Submission Failed",
+            title: "Could Not Log Receipt",
             description: result.message,
           });
         }
       },
-      onError: (error) => {
+      onError: () => {
         toast({
           variant: "destructive",
-          title: "Network Error",
-          description: "Failed to connect to contract. Please try again."
+          title: "Connection Error",
+          description: "Could not reach the contract. Please try again."
         });
       }
     });
@@ -76,9 +76,9 @@ export function Evidence() {
         <div className="inline-flex items-center justify-center p-4 bg-primary/10 rounded-full mb-6 text-primary">
           <ShieldAlert className="w-8 h-8" />
         </div>
-        <h1 className="text-4xl font-black mb-4">SUBMIT EVIDENCE</h1>
+        <h1 className="text-4xl font-black mb-4">LOG YOUR RECEIPT</h1>
         <p className="text-muted-foreground font-mono text-sm max-w-xl mx-auto">
-          Upload cryptographic proof of ignored communication. This data directly impacts the Zeta drift algorithm and increases systemic probability of quarantine for the offending address.
+          Submit proof of being ignored. Every receipt you log raises the ghosting level and makes the contract stronger. They left you on read — now make it count.
         </p>
       </div>
 
@@ -94,19 +94,19 @@ export function Evidence() {
                 <FormItem>
                   <div className="flex justify-between items-center mb-2">
                     <FormLabel className="font-mono text-xs text-muted-foreground flex items-center gap-2">
-                      <Fingerprint className="w-3 h-3" /> EVIDENCE HASH (BYTES32)
+                      <Fingerprint className="w-3 h-3" /> YOUR PROOF HASH
                     </FormLabel>
                     <button 
                       type="button" 
                       onClick={generateRandomHash}
                       className="text-xs font-mono text-primary hover:text-white transition-colors"
                     >
-                      GENERATE MOCK
+                      GENERATE FOR ME
                     </button>
                   </div>
                   <FormControl>
                     <Input 
-                      placeholder="0x..." 
+                      placeholder="0x... (your read receipt turned into a hash)" 
                       className="font-mono bg-background border-white/10 focus-visible:ring-primary/50" 
                       {...field} 
                     />
@@ -122,7 +122,7 @@ export function Evidence() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="font-mono text-xs text-muted-foreground flex items-center gap-2 mb-2">
-                    <Activity className="w-3 h-3" /> SEVERITY WEIGHT (1-100)
+                    <Activity className="w-3 h-3" /> HOW BAD WAS IT? (1 = mild, 100 = devastating)
                   </FormLabel>
                   <FormControl>
                     <Input 
@@ -134,7 +134,7 @@ export function Evidence() {
                     />
                   </FormControl>
                   <p className="text-xs text-muted-foreground font-mono mt-2">
-                    Higher weight translates to faster Zeta decay acceleration. Use 100 for explicit read receipts.
+                    Higher score = more damage to the ghosting level. Use 100 for explicit read receipts with no response.
                   </p>
                   <FormMessage className="text-destructive font-mono text-xs" />
                 </FormItem>
@@ -147,11 +147,11 @@ export function Evidence() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="font-mono text-xs text-muted-foreground flex items-center gap-2 mb-2">
-                    <FileText className="w-3 h-3" /> CONTEXT LOG (OPTIONAL)
+                    <FileText className="w-3 h-3" /> WHAT HAPPENED? (OPTIONAL)
                   </FormLabel>
                   <FormControl>
                     <Textarea 
-                      placeholder="e.g., Sent 'we still on for tonight?' at 6pm. Read at 6:02pm. No response." 
+                      placeholder='e.g., Sent "we still on for tonight?" at 6pm. Read at 6:02pm. No response.' 
                       className="resize-none h-24 bg-background border-white/10 focus-visible:ring-primary/50 text-sm" 
                       {...field} 
                     />
@@ -169,12 +169,12 @@ export function Evidence() {
               {isPending ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  PROCESSING TRANSACTION...
+                  LOGGING YOUR RECEIPT...
                 </>
               ) : (
                 <>
                   <Upload className="w-5 h-5 group-hover:-translate-y-1 transition-transform" />
-                  INJECT INTO CONTRACT
+                  SUBMIT YOUR RECEIPT
                   <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </>
               )}
