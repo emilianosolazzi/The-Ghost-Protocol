@@ -54,6 +54,7 @@ export function StoryActionStrip({ story, account, walletState, isWalletStateLoa
     : ghostProtocolUiConstants.credibilityUnlockThreshold;
 
   const balance = walletState?.balance ?? 0n;
+  const ethBalance = walletState?.ethBalance ?? 0n;
   const allowance = walletState?.allowance ?? 0n;
   const tokenCredibilityScore = walletState?.tokenCredibilityScore ?? 0n;
   const protocolCredibilityScore = walletState?.protocolCredibilityScore ?? 0n;
@@ -63,6 +64,8 @@ export function StoryActionStrip({ story, account, walletState, isWalletStateLoa
   const needsTruthApproval = allowance < truthStakeAmount;
   const canAffordUnlock = balance >= unlockPrice;
   const canAffordTruthStake = balance >= truthStakeAmount;
+  const ethUnlockPrice = story.payouts.currentEthUnlockPrice;
+  const canAffordEthUnlock = ethBalance >= ethUnlockPrice;
   const isLockedForWallet = !story.story.isPublic && !story.canAccess;
   const canUnlockByCredibility = Boolean(account) && isLockedForWallet && effectiveCredibilityScore >= effectiveCredibilityRequirement;
   const canMakePublic = Boolean(account) && isSubmitter && !story.story.isPublic;
@@ -98,6 +101,10 @@ export function StoryActionStrip({ story, account, walletState, isWalletStateLoa
       if (effectiveCredibilityScore < effectiveCredibilityRequirement) {
         notes.push(`Credibility unlock requires ${formatGhostedAmount(effectiveCredibilityRequirement, 0)} effective score. Current effective score: ${formatGhostedAmount(effectiveCredibilityScore, 0)}.`);
       }
+
+      if (!canAffordEthUnlock) {
+        notes.push(`ETH unlock costs ${formatEthAmount(ethUnlockPrice, 5)} ETH. Current wallet ETH: ${formatEthAmount(ethBalance, 5)}.`);
+      }
     }
 
     if (!canAffordTruthStake) {
@@ -114,11 +121,14 @@ export function StoryActionStrip({ story, account, walletState, isWalletStateLoa
   }, [
     account,
     balance,
+    canAffordEthUnlock,
     canAffordTruthStake,
     canAffordUnlock,
     canMakePublic,
     effectiveCredibilityScore,
     effectiveCredibilityRequirement,
+    ethBalance,
+    ethUnlockPrice,
     needsTruthApproval,
     needsUnlockApproval,
     story.canAccess,
@@ -277,11 +287,11 @@ export function StoryActionStrip({ story, account, walletState, isWalletStateLoa
             <Button
               size="sm"
               variant="outline"
-              disabled={isAnyPending || !account}
+              disabled={isAnyPending || !account || isWalletStateLoading || !canAffordEthUnlock}
               onClick={handleEthUnlock}
             >
               {isUnlockingWithEth ? <Spinner className="size-3.5" /> : <Wallet className="size-3.5" />}
-              Unlock With ETH
+              Unlock With {formatEthAmount(ethUnlockPrice, 5)} ETH
             </Button>
 
             <Button

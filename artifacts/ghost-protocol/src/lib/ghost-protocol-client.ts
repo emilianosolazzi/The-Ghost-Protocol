@@ -109,6 +109,7 @@ export type GhostStorySnapshot = {
 export type GhostedWalletState = {
   tokenAddress: Address;
   balance: bigint;
+  ethBalance: bigint;
   allowance: bigint;
   tokenCredibilityScore: bigint;
   protocolCredibilityScore: bigint;
@@ -177,13 +178,14 @@ export async function readGhostedWalletState(account: Address): Promise<GhostedW
   const config = assertConfiguredConfig();
   const client = getPublicClient();
   const tokenAddress = await readGhostedTokenAddress();
-  const [balance, allowance, credibility] = await Promise.all([
+  const [balance, ethBalance, allowance, credibility] = await Promise.all([
     client.readContract({
       address: tokenAddress,
       abi: ghostedTokenAbi,
       functionName: "balanceOf",
       args: [account],
     }) as Promise<bigint>,
+    client.getBalance({ address: account }),
     client.readContract({
       address: tokenAddress,
       abi: ghostedTokenAbi,
@@ -201,6 +203,7 @@ export async function readGhostedWalletState(account: Address): Promise<GhostedW
   return {
     tokenAddress,
     balance,
+    ethBalance,
     allowance,
     tokenCredibilityScore: credibility[0],
     protocolCredibilityScore: credibility[1],

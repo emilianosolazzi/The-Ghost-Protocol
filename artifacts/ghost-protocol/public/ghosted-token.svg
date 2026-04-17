@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#c4b5fd"/>
+      <stop offset="60%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#3b0764"/>
+    </radialGradient>
+    <radialGradient id="innerGlow" cx="50%" cy="35%" r="45%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="#7c3aed" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Coin body -->
+  <circle cx="64" cy="64" r="60" fill="url(#glow)" stroke="#a78bfa" stroke-width="3" filter="url(#shadow)"/>
+  <circle cx="64" cy="64" r="52" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+  <circle cx="64" cy="64" r="56" fill="url(#innerGlow)"/>
+
+  <!-- Ghost shape -->
+  <path d="
+    M64 28
+    C46 28 34 42 34 58
+    L34 88
+    C34 90 36 91 38 89
+    L44 82
+    C46 80 48 80 50 82
+    L54 88
+    C56 90 58 90 60 88
+    L64 82
+    L68 88
+    C70 90 72 90 74 88
+    L78 82
+    C80 80 82 80 84 82
+    L90 89
+    C92 91 94 90 94 88
+    L94 58
+    C94 42 82 28 64 28Z
+  " fill="rgba(255,255,255,0.92)" stroke="rgba(124,58,237,0.5)" stroke-width="1"/>
+
+  <!-- Eyes -->
+  <ellipse cx="52" cy="56" rx="6" ry="7" fill="#3b0764"/>
+  <ellipse cx="76" cy="56" rx="6" ry="7" fill="#3b0764"/>
+
+  <!-- Eye shine -->
+  <ellipse cx="50" cy="54" rx="2" ry="2.5" fill="rgba(255,255,255,0.7)"/>
+  <ellipse cx="74" cy="54" rx="2" ry="2.5" fill="rgba(255,255,255,0.7)"/>
+
+  <!-- Subtle mouth -->
+  <path d="M58 68 Q64 74 70 68" fill="none" stroke="#3b0764" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

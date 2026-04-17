@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IGhostedToken is IERC20 {
     function burn(address from, uint256 amount) external;
@@ -11,7 +12,7 @@ interface IGhostedToken is IERC20 {
     function updateCredibilityScore(address holder, uint256 newScore) external;
 }
 
-contract GhostProtocol {
+contract GhostProtocol is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Evidence {
@@ -61,7 +62,6 @@ contract GhostProtocol {
     error NotOracle();
     error NotOwner();
     error OnlySubmitter();
-    error ReentrancyGuardActive();
     error StaleUnlockPriceQuote(uint256 lastUpdatedAt, uint256 maxAge);
     error StoryAlreadyPublic();
     error StoryDoesNotExist();
@@ -147,8 +147,6 @@ contract GhostProtocol {
     mapping(address => uint256) public totalTruthWins;
     mapping(address => uint256) public truthWinStreak;
 
-    uint256 private _reentrancyStatus = 1;
-
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
@@ -167,13 +165,6 @@ contract GhostProtocol {
     modifier whenNotPaused() {
         if (paused) revert ContractPaused();
         _;
-    }
-
-    modifier nonReentrant() {
-        if (_reentrancyStatus != 1) revert ReentrancyGuardActive();
-        _reentrancyStatus = 2;
-        _;
-        _reentrancyStatus = 1;
     }
 
     constructor(address ghostedTokenAddress, address treasuryAddress, address oracleAddress) {
@@ -437,7 +428,7 @@ contract GhostProtocol {
 
         hasUnlockedStory[proofHash][msg.sender] = true;
         story.timesUnlocked += 1;
-    story.unlockPrice = _nextUnlockPrice(currentPrice);
+        story.unlockPrice = _nextUnlockPrice(currentPrice);
         storyEthEarnings[proofHash] += ethPrice;
 
         _safeTransferETH(story.submitter, ethPrice);

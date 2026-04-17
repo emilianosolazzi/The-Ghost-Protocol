@@ -184,7 +184,7 @@ describe("GhostProtocol: Evidence Submission", function () {
       );
 
       const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+      const gasUsed = BigInt(receipt!.gasUsed) * BigInt(receipt!.gasPrice);
       const finalBalance = await ethers.provider.getBalance(user1.address);
 
       // User should get back close to the overpayment amount minus gas
