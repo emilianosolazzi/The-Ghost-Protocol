@@ -1,49 +1,48 @@
-# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# Dependencies
+node_modules/
 
-# compiled output
-dist
-tmp
-out-tsc
+# Build output
+dist/
+tmp/
+out-tsc/
 *.tsbuildinfo
-.expo
-.expo-shared
 
-# dependencies
-node_modules
+# Environment files
+.env
+.env.local
+.env.*.local
 
-# IDEs and editors
-/.idea
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
-
-# IDE - VSCode
+# IDE
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+.idea/
+*.sublime-workspace
 
-# misc
-/.sass-cache
-/connect.lock
-/coverage
-/libpeerconnection.log
-npm-debug.log
-yarn-error.log
-testem.log
-/typings
-
-# System Files
+# System
 .DS_Store
 Thumbs.db
 
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
+# Hardhat / Solidity
+cache/
+artifacts/ghost-protocol/dist/
+lib/ghost-contract/cache/
+lib/ghost-contract/artifacts/deployment-hardhat-local.json
 
-# Replit
+# Misc
+coverage/
+npm-debug.log
+yarn-error.log
+*.log
+
+# Workspace cache
 .cache/
 .local/
+.expo/
+.expo-shared/
+
+# Cursor / GitHub generated rules
+.cursor/
+.github/instructions/

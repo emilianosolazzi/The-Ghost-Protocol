@@ -4,6 +4,9 @@
   "files": [],
   "references": [
     {
+      "path": "./lib/ghost-contract"
+    },
+    {
       "path": "./lib/db"
     },
     {

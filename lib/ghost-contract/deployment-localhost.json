@@ -1,0 +1,10 @@
+{
+  "network": "localhost",
+  "chainId": 31337,
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "ghostedToken": "0x1111111111111111111111111111111111111111",
+  "ghostProtocol": "0x2222222222222222222222222222222222222222",
+  "hardhatPrivateKey": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "nodeUrl": "http://127.0.0.1:8545",
+  "deployedAt": "2026-04-16T22:33:46.460Z"
+}

@@ -8,6 +8,7 @@ import { Landing } from "@/pages/landing";
 import { Dashboard } from "@/pages/dashboard";
 import { Evidence } from "@/pages/evidence";
 import { HowToUse } from "@/pages/how-to-use";
+import { WalletProvider } from "@/hooks/use-wallet";
 
 const queryClient = new QueryClient();
 
@@ -27,11 +28,13 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Layout>
-            <Router />
-          </Layout>
-        </WouterRouter>
+        <WalletProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Layout>
+              <Router />
+            </Layout>
+          </WouterRouter>
+        </WalletProvider>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

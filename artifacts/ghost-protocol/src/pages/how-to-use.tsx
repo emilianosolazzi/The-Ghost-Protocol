@@ -1,5 +1,16 @@
 import { Link } from "wouter";
-import { Ghost, Eye, FileText, BarChart2, ArrowRight, MessageSquareX, Zap, ShieldAlert, Skull, HelpCircle, Send, Coins, Lock, Flame, HeartCrack, CheckCircle2, Vote } from "lucide-react";
+import { ghostProtocolUiConstants } from "@workspace/ghost-contract";
+import { Ghost, FileText, BarChart2, ArrowRight, Zap, ShieldAlert, HelpCircle, Send, Coins, Lock, CheckCircle2, Wallet, Activity } from "lucide-react";
+import { formatEthAmount } from "@/lib/ghost-protocol-client";
+
+function formatTokenAmount(amount: bigint) {
+  return Number(amount / 10n ** 18n).toLocaleString();
+}
+
+const receiptRewardMultiplier = Number(ghostProtocolUiConstants.receiptRewardMultiplier);
+const maxGhostedPerSubmission = Number(ghostProtocolUiConstants.maxGhostedPerSubmission / 10n ** 18n);
+const treasuryCutEth = (ghostProtocolUiConstants.receiptFeeEth * ghostProtocolUiConstants.treasurySplitBps) / ghostProtocolUiConstants.bpsDenominator;
+const protocolCutEth = ghostProtocolUiConstants.receiptFeeEth - treasuryCutEth;
 
 export function HowToUse() {
   return (
@@ -12,141 +23,145 @@ export function HowToUse() {
         </div>
         <h1 className="text-4xl md:text-5xl font-black mb-4 tracking-tight">HOW IT WORKS</h1>
         <p className="text-muted-foreground font-mono text-base max-w-2xl mx-auto leading-relaxed">
-          GhostProtocol is a memecoin built around one universal experience: being ignored.
-          Here's everything you need to know to read the dashboard, log receipts, and understand what each number actually means.
+          GhostProtocol is only useful if the frontend describes the same mechanics the contract actually runs.
+          This page is the contract-accurate map of the current local build.
         </p>
       </div>
 
-      {/* What Is GhostProtocol */}
       <section className="flex flex-col gap-6">
         <SectionLabel icon={<Ghost className="w-4 h-4" />} label="THE BASICS" />
         <h2 className="text-3xl font-black">What is GhostProtocol?</h2>
         <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
             <p className="text-muted-foreground leading-relaxed">
-              $GHOSTED is a memecoin (1 billion supply) that tracks the one thing everyone has in common — being left on read.
-              The smart contract watches for ghosting activity, measures how bad it is, and turns that pain into on-chain mechanics.
+              GhostProtocol is a receipt ledger and story-unlock contract wired to a token called <span className="text-white font-semibold">$GHOSTED</span>.
+              The core action is <span className="text-white font-semibold">submitEvidence</span>: store a unique proof hash,
+              pay a fixed ETH fee, and optionally earn a direct $GHOSTED payout.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              Submit direct proof of being ignored → lower the ghosting level → earn $GHOSTED. Hit critical thresholds and the contract releases ETH rewards to holders. 
-              Detection entropy is the engine — the more verified receipts logged, the more the market moves.
+              Every evidence entry also creates a locked story priced at <span className="text-white font-semibold">{formatTokenAmount(ghostProtocolUiConstants.baseUnlockPrice)} GHOSTED</span>.
+              Stories can later be unlocked with tokens, ETH, or enough credibility, and separate truth stakes can be attached to them.
             </p>
           </div>
           <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
             <p className="text-muted-foreground leading-relaxed">
-              You can participate in two ways:
+              The contract currently exposes four major flows:
             </p>
             <ul className="space-y-3">
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Watch the live tracker</span> — see the ghosting level, heartbreak buildup, ETH reward progress, and relationship events in real time.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Submit evidence</span> — direct submissions earn severity × {receiptRewardMultiplier.toLocaleString()} $GHOSTED, up to {maxGhostedPerSubmission.toLocaleString()}. Proxy submissions are recorded but earn nothing.</p>
               </li>
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Log your receipts</span> — submit direct proof of being ghosted to earn $GHOSTED tokens, lower the ghosting level, and push the contract toward ETH reward thresholds.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Unlock stories</span> — use burn, ETH, or credibility to unlock receipt stories and pay the original submitter.</p>
+              </li>
+              <li className="flex gap-3 items-start">
+                <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</div>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Stake on truth</span> — put up 100 $GHOSTED on whether a receipt is real and wait for oracle resolution.</p>
+              </li>
+              <li className="flex gap-3 items-start">
+                <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</div>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Read live state</span> — the dashboard pulls counters, revenues, and recent evidence directly from the deployed contract.</p>
               </li>
             </ul>
           </div>
         </div>
       </section>
 
-      {/* The Live Tracker */}
       <section className="flex flex-col gap-6">
         <SectionLabel icon={<BarChart2 className="w-4 h-4" />} label="LIVE TRACKER" />
         <h2 className="text-3xl font-black">What do the numbers mean?</h2>
         <p className="text-muted-foreground font-mono text-sm">
-          The tracker page shows four key readings at all times. Here's what each one tells you:
+          The dashboard is a thin view over <span className="text-white font-semibold">getProtocolStats()</span> plus per-story reads.
+          These are the labels that matter:
         </p>
 
         <div className="grid md:grid-cols-2 gap-4">
           <MetricExplainer
-            icon={<Zap className="w-5 h-5 text-primary" />}
-            name="GHOSTING LEVEL"
-            short="How much ignoring has happened"
-            description="This is the core number. It rises every time a ghosting event is logged — an ignored text, a read receipt with no reply, a conversation that just died. The higher this gets, the more $GHOST gets burned. Think of it as a collective measure of how ignored everyone is feeling right now."
-            range="0 is fine. Anything above 0.5 is concerning. Above 0.9 means the vibe is fully dead."
+            icon={<Activity className="w-5 h-5 text-primary" />}
+            name="TOTAL / DIRECT / PROXY EVIDENCE"
+            short="How many receipts are stored"
+            description="These come from the contract counters. Total evidence is every submission. Direct evidence is the subset that earned $GHOSTED. Proxy evidence is the subset stored with zero reward."
+            range="These are literal counters, not derived vibes or weighted scores."
           />
           <MetricExplainer
-            icon={<MessageSquareX className="w-5 h-5 text-primary" />}
-            name="HEARTBREAK BUILDUP"
-            short="How long the pain has been piling up"
-            description="This measures how long the ghosting level has stayed high without resolution. If someone's been ignored for days, the heartbreak buildup climbs. It amplifies the ghosting level — a brief cold shoulder is one thing, but a week of silence is another."
-            range="Low is fine. Once it passes 0.5, feelings have been sitting unaddressed for a while."
+            icon={<Lock className="w-5 h-5 text-primary" />}
+            name="DIRECT ASSERTIONS"
+            short="The contract's global direct-receipt counter"
+            description="The stats field named totalTruthAssertions increments when a direct receipt is submitted. It does not count per-story truth stakes. Those are read separately with getTruthAssertionCount(proofHash)."
+            range="If you want truth stakes on a specific receipt, look at the recent evidence cards instead."
           />
           <MetricExplainer
-            icon={<Skull className="w-5 h-5 text-primary" />}
-            name="NO RETURN CHANCE"
-            short="Odds they're never texting back"
-            description="A percentage showing how likely it is that the ghosting is permanent. Calculated from the ghosting level and how long it's been building. Below 30% and there's still hope. Above 60% and you should probably move on."
-            range="Under 30% — they might come back. 60-80% — it's not looking good. 80%+ — you've been permanently ghosted."
+            icon={<Wallet className="w-5 h-5 text-primary" />}
+            name="REVENUE / TREASURY / PROTOCOL POOL"
+            short={`Where the ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH fee goes`}
+            description={`Every submission pays ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH. The contract forwards 30% to treasury and retains 70% as protocol revenue. The dashboard shows all three aggregate totals directly from storage.`}
+            range={`Per submission: ${formatEthAmount(treasuryCutEth, 5)} ETH to treasury, ${formatEthAmount(protocolCutEth, 5)} ETH retained by GhostProtocol.`}
           />
           <MetricExplainer
-            icon={<ShieldAlert className="w-5 h-5 text-primary" />}
-            name="DRIFTED APART"
-            short="How far apart two people have grown"
-            description="Measures the gap between two people's engagement scores — how much one person is putting in versus the other. If one person is texting and the other is silent, this number climbs. When it hits 100%, the connection is considered completely severed."
-            range="Under 20% — still close. 40-70% — things are uneven. Above 80% — major drift, possibly permanent."
+            icon={<Coins className="w-5 h-5 text-primary" />}
+            name="REWARDED / GASLIGHT FLAG"
+            short="What has been paid and whether 10 receipts have been reached"
+            description="Rewarded GHOSTED includes both direct receipt payouts and oracle-resolved truth wins. The gaslight flag is just a boolean derived from total evidence >= 10."
+            range="The current contract has no fork threshold, milestone ETH release, or heartbreak meter."
           />
         </div>
       </section>
 
-      {/* Relationship Status */}
       <section className="flex flex-col gap-6">
-        <SectionLabel icon={<Eye className="w-4 h-4" />} label="RELATIONSHIP STATUS" />
-        <h2 className="text-3xl font-black">What are the status flags?</h2>
+        <SectionLabel icon={<FileText className="w-4 h-4" />} label="EVIDENCE" />
+        <h2 className="text-3xl font-black">What exactly gets stored?</h2>
         <p className="text-muted-foreground font-mono text-sm">
-          These four flags tell you what stage the relationship has reached. They're binary — either it's happened or it hasn't.
+          An evidence record is small and explicit. There are no hidden emotional models in this build.
         </p>
         <div className="flex flex-col gap-3">
           <FlagExplainer
-            label="STUCK ON THEM"
-            meaning="The ghosting level crossed a point of no return. You can't unsee the read receipt. The contract is locked — this person is embedded in your brain."
-            icon="🔒"
+            label="PROOF HASH"
+            meaning="A 32-byte unique key. The contract rejects duplicates, so each evidence item can only be submitted once."
+            icon="#"
           />
           <FlagExplainer
-            label="FEELINGS EXPOSED"
-            meaning="The heartbreak buildup got so high that feelings slipped out — a double text, a voice note, something you probably regret. Emotionally compromised."
-            icon="💬"
+            label="SEVERITY"
+            meaning={`An integer from 1 to 100. Direct rewards are severity × ${receiptRewardMultiplier.toLocaleString()} $GHOSTED, capped at ${maxGhostedPerSubmission.toLocaleString()}.`}
+            icon="!"
           />
           <FlagExplainer
-            label="THEY BOUNCED"
-            meaning="The drift became total. They left the chat — figuratively or literally. The connection has been severed by external forces (i.e., them deciding to ghost)."
-            icon="👻"
+            label="DESCRIPTION HASH"
+            meaning="The raw description text is not persisted. The contract stores keccak256(description) so the ledger keeps a fingerprint, not the message body."
+            icon="*"
           />
           <FlagExplainer
-            label="IT'S OFFICIALLY OVER"
-            meaning="The two people in question have permanently diverged. Two separate realities, on-chain, forever. There is no coming back from this flag."
-            icon="💀"
+            label="DRAMA TYPE + SUBMITTER + REWARD"
+            meaning="Each record also stores the selected drama type string, whether it was proxy evidence, who submitted it, and how much $GHOSTED was paid."
+            icon=">"
           />
         </div>
       </section>
 
-      {/* The Tea */}
       <section className="flex flex-col gap-6">
-        <SectionLabel icon={<MessageSquareX className="w-4 h-4" />} label="EVENT FEED" />
-        <h2 className="text-3xl font-black">What's "The Tea"?</h2>
+        <SectionLabel icon={<Zap className="w-4 h-4" />} label="FEE FLOW" />
+        <h2 className="text-3xl font-black">What happens when you submit?</h2>
         <p className="text-muted-foreground leading-relaxed">
-          The Tea is a live feed of events the contract has logged. Every time something happens — someone submits a receipt, the ghosting level rises, a red flag is spotted — it shows up here in real time.
+          A receipt submission is a real payable transaction. The contract emits events, updates counters, and initializes the related story in one call.
         </p>
         <div className="bg-card border border-white/5 rounded-xl p-6 flex flex-col gap-4">
-          <p className="text-sm font-mono text-muted-foreground mb-2">COMMON EVENTS YOU'LL SEE:</p>
-          <EventRow label="Getting More Distant" desc="The ghosting level went up — someone new got left on read." />
-          <EventRow label="Feelings Piling Up" desc="The heartbreak buildup increased — the silence is lasting longer." />
-          <EventRow label="Receipt Logged" desc="Someone submitted direct proof of ghosting — ghosting level reduced, $GHOSTED earned." />
-          <EventRow label="Red Flag Spotted" desc="Unusual behavior detected — like a triple text at 3am with no reply." />
-          <EventRow label="Feelings Exposed" desc="Heartbreak buildup crossed a critical level — 5 ETH reward triggered." />
-          <EventRow label="They Bounced" desc="Drift exceeded overlap — connection severed, 2 ETH escape reward released." />
-          <EventRow label="It's Over" desc="Fork system triggered after 20+ receipts. 10 ETH released to the treasury." />
-          <EventRow label="$GHOSTED Bag Growing" desc="Entropy rewards distributed — someone's verified receipt earned $GHOSTED." />
+          <p className="text-sm font-mono text-muted-foreground mb-2">SUBMIT EVIDENCE CHANGES:</p>
+          <EventRow label={`${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH collected`} desc="The contract requires the exact fee and refunds any overpayment." />
+          <EventRow label="Treasury paid" desc="30% of the fee is forwarded to the configured treasury address immediately." />
+          <EventRow label="Protocol revenue retained" desc="70% stays in the contract and shows up as protocol revenue on the dashboard." />
+          <EventRow label="Direct reward paid" desc={`If the receipt is direct, the submitter receives severity × ${receiptRewardMultiplier.toLocaleString()} $GHOSTED, capped at ${maxGhostedPerSubmission.toLocaleString()}.`} />
+          <EventRow label="Story initialized" desc="A locked story is created with a base unlock price of 500 GHOSTED." />
+          <EventRow label="Events emitted" desc="EvidenceSubmitted and GhostingReceiptSubmitted are emitted on-chain." />
         </div>
       </section>
 
-      {/* Logging a Receipt */}
       <section className="flex flex-col gap-6">
         <SectionLabel icon={<FileText className="w-4 h-4" />} label="LOGGING RECEIPTS" />
         <h2 className="text-3xl font-black">How do I log a receipt?</h2>
         <p className="text-muted-foreground leading-relaxed">
-          Logging a receipt submits proof of your ghosting experience to the contract. Direct receipts (things you personally witnessed) lower the ghosting level and earn you $GHOSTED. Proxy receipts (things a friend told you) raise the mismatch and earn nothing — the contract only rewards verified, direct evidence.
+          Logging a receipt calls <span className="text-white font-semibold">submitEvidence</span>. The frontend builds the payload,
+          your wallet signs the transaction, and the dashboard refetches live state once the receipt is mined.
         </p>
 
         <div className="flex flex-col gap-4">
@@ -163,12 +178,12 @@ export function HowToUse() {
           <Step
             number={3}
             title="Choose: Direct or Third Party"
-            desc="Direct = you saw it yourself (screenshot, read receipt, voice note left on delivered). Third party = you found out through someone else. Direct earns $GHOSTED. Third-party earns none — but it does raise the ghosting signal."
+            desc="Direct evidence earns $GHOSTED and increments the global direct assertion counter. Proxy evidence is still stored on-chain but earns no token payout."
           />
           <Step
             number={4}
             title="Rate how bad it was"
-            desc="Score 1-100. A 1 is a mild vibe check ignored. A 100 is a heartfelt message, read at 11:43pm, zero response. Your weight × 1,000 = your $GHOSTED reward for direct receipts."
+            desc={`Score 1-100. A 1 is a mild vibe check ignored. A 100 is a heartfelt message, read at 11:43pm, zero response. Your weight × ${receiptRewardMultiplier.toLocaleString()} = your $GHOSTED reward for direct receipts, up to ${maxGhostedPerSubmission.toLocaleString()}.`}
           />
           <Step
             number={5}
@@ -178,7 +193,7 @@ export function HowToUse() {
           <Step
             number={6}
             title="Submit and watch the chain react"
-            desc="Your receipt is logged permanently. The ghosting level adjusts, The Tea updates, and your $GHOSTED reward is credited. At 10+ receipts, gaslight override unlocks. At 20+, the fork threshold is met."
+            desc="Your receipt is logged permanently. The contract updates counters, splits the ETH fee, initializes the story, and credits the direct reward if applicable."
           />
         </div>
 
@@ -189,19 +204,18 @@ export function HowToUse() {
         </div>
       </section>
 
-      {/* Detection Entropy */}
       <section className="flex flex-col gap-6">
         <SectionLabel icon={<Lock className="w-4 h-4" />} label="DETECTION ENTROPY" />
-        <h2 className="text-3xl font-black">How do the ETH rewards work?</h2>
+        <h2 className="text-3xl font-black">How do story unlocks work?</h2>
         <p className="text-muted-foreground leading-relaxed">
-          The contract holds ETH and releases it automatically when the ghosting situation crosses certain thresholds. These are triggered by state changes — not by individual people, but by the cumulative weight of evidence and time.
+          Every evidence item creates a locked story. Access is not automatic unless the submitter later makes the story public.
         </p>
         <div className="flex flex-col gap-3">
           {[
-            { label: "STUCK ON THEM", trigger: "Ghosting level crosses the lock threshold — brain is locked in.", reward: "1 ETH", icon: "🔒" },
-            { label: "FEELINGS EXPOSED", trigger: "Heartbreak buildup exceeds critical accumulation — feelings are out.", reward: "5 ETH", icon: "💬" },
-            { label: "THEY BOUNCED", trigger: "Drift exceeds overlap — more distance than connection. Gone.", reward: "2 ETH", icon: "👻" },
-            { label: "IT'S OVER", trigger: "Contract has escaped AND 20+ receipts logged. Fork triggered.", reward: "10 ETH", icon: "💀" },
+            { label: "BURN UNLOCK", trigger: "Pay the token unlock price. Half is burned, half is transferred to the submitter.", reward: `${formatTokenAmount(ghostProtocolUiConstants.baseUnlockPrice)} GHOSTED base`, icon: "B" },
+            { label: "CREDIBILITY UNLOCK", trigger: "Requires token credibility above both the global floor and the story-specific severity threshold.", reward: `${formatTokenAmount(ghostProtocolUiConstants.credibilityUnlockThreshold)} floor`, icon: "C" },
+            { label: "ETH UNLOCK", trigger: "Pay the ETH-equivalent unlock price. The ETH goes straight to the submitter.", reward: "dynamic", icon: "E" },
+            { label: "PUBLIC STORY", trigger: "Only the original submitter can flip a story to public access.", reward: "0 cost", icon: "P" },
           ].map((r) => (
             <div key={r.label} className="flex items-center gap-4 p-4 bg-card border border-white/5 rounded-xl hover:border-white/10 transition-colors">
               <span className="text-xl shrink-0">{r.icon}</span>
@@ -214,58 +228,58 @@ export function HowToUse() {
           ))}
         </div>
         <p className="text-muted-foreground text-sm leading-relaxed">
-          Logging more direct receipts raises the evidence counter, which is the key multiplier. Once you hit 20 verified receipts and the contract has fully escaped, the fork triggers and the maximum 10 ETH reward is released. This is why detection entropy matters — it's not just about feeling seen, it's about moving the market.
+          The unlock price increases slightly after each paid unlock. The recent evidence cards show the current token unlock price and whether the active wallet can access the story.
         </p>
       </section>
 
-      {/* VRF Legendary */}
       <section className="flex flex-col gap-6">
-        <SectionLabel icon={<Coins className="w-4 h-4" />} label="VRF LEGENDARY" />
-        <h2 className="text-3xl font-black">What's the Legendary Reward?</h2>
+        <SectionLabel icon={<Coins className="w-4 h-4" />} label="TRUTH STAKES" />
+        <h2 className="text-3xl font-black">How does asserting truth work?</h2>
         <div className="bg-card border border-primary/20 rounded-xl p-6 flex flex-col gap-4">
           <p className="text-muted-foreground leading-relaxed">
-            Token #70 from the "Ghosted Memories" collection carries a one-of-a-kind VRF-verified claim. It represents the Bitcoin Exchange Era — Block 91812, July 2010. The first real price discovery. Mt. Gox launch. A 500 BTC UTXO. The first real ghost on-chain.
+            Truth staking is a separate path from direct evidence submission. Anyone can call <span className="text-white font-semibold">assertTruth</span>
+            on an existing proof hash and stake <span className="text-white font-semibold">{formatTokenAmount(ghostProtocolUiConstants.truthAssertionStake)} GHOSTED</span>.
           </p>
           <p className="text-muted-foreground leading-relaxed">
-            Whoever holds token #70 and can verify the VRF proof against the on-chain constants earns a one-time reward of <span className="text-primary font-bold">1,000,000 $GHOSTED</span> (1% of total supply). The reward scales upward with emotional debt — the higher the accumulated heartbreak, the larger the payout.
+            Later, the oracle resolves each truth stake. A correct call earns <span className="text-primary font-bold">{formatTokenAmount(ghostProtocolUiConstants.truthWinReward)} GHOSTED</span>
+            and a +100 credibility bump. A wrong call sends half the stake to the story submitter and burns the other half.
           </p>
           <div className="grid grid-cols-3 gap-4 pt-2 border-t border-white/5">
             <div>
-              <p className="font-mono text-xs text-muted-foreground mb-1">TOKEN</p>
-              <p className="font-mono text-sm font-black">#70</p>
+              <p className="font-mono text-xs text-muted-foreground mb-1">STAKE</p>
+              <p className="font-mono text-sm font-black">{formatTokenAmount(ghostProtocolUiConstants.truthAssertionStake)} $GHOSTED</p>
             </div>
             <div>
-              <p className="font-mono text-xs text-muted-foreground mb-1">BASE REWARD</p>
-              <p className="font-mono text-sm font-black text-primary">1,000,000 $GHOSTED</p>
+              <p className="font-mono text-xs text-muted-foreground mb-1">WIN REWARD</p>
+              <p className="font-mono text-sm font-black text-primary">{formatTokenAmount(ghostProtocolUiConstants.truthWinReward)} $GHOSTED</p>
             </div>
             <div>
-              <p className="font-mono text-xs text-muted-foreground mb-1">STATUS</p>
-              <p className="font-mono text-sm font-black text-yellow-400">UNCLAIMED</p>
+              <p className="font-mono text-xs text-muted-foreground mb-1">RESOLUTION</p>
+              <p className="font-mono text-sm font-black text-yellow-400">ORACLE</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Red Flags & Receipts */}
       <section className="flex flex-col gap-6">
         <SectionLabel icon={<Send className="w-4 h-4" />} label="QUICK REFERENCE" />
         <h2 className="text-3xl font-black">Glossary</h2>
         <div className="grid md:grid-cols-2 gap-3">
           {[
-            { term: "Ghosting Level", def: "The main measure of how much ignoring is happening. Direct receipts lower it. Proxy receipts raise it." },
-            { term: "Heartbreak Buildup", def: "How long the pain has been unresolved. Amplifies the ghosting level over time. Crossing the threshold → 5 ETH." },
-            { term: "No Return Chance", def: "The probability (as a %) that the ghosting is permanent. Formula: zeta / (1 + zeta), from the contract." },
-            { term: "Drifted Apart", def: "Measures the gap between two engagement scores. When drift exceeds overlap, They Bounced triggers." },
-            { term: "Direct Receipt", def: "Proof you witnessed yourself. Lowers the ghosting level and earns weight × 1,000 $GHOSTED." },
-            { term: "Proxy Receipt", def: "Proof heard from a third party. Raises the mismatch signal. Earns no $GHOSTED." },
-            { term: "Detection Entropy", def: "The cumulative signal produced by verified direct receipts. Powers all ETH reward thresholds." },
-            { term: "Red Flags", def: "Unusual behavior patterns logged by the contract — triple texts, 3am messages, 24hr+ silence." },
-            { term: "The Tea", def: "The live event feed showing everything the contract has logged in real time." },
-            { term: "$GHOSTED", def: "The token. 1B total supply. Earned by submitting direct receipts. VRF legendary reward = 1M $GHOSTED." },
-            { term: "Gaslight Override", def: "Unlocked at 10+ receipts. Lets the community reduce emotional debt by 33% on-chain." },
-            { term: "Fork Threshold", def: "Reached at 20+ receipts + They Bounced. Triggers the maximum 10 ETH reward release." },
-            { term: "Stuck On Them", def: "Status flag — the ghosting level crossed the lock threshold. 1 ETH reward released." },
-            { term: "It's Officially Over", def: "Status flag — fork system triggered after 20+ receipts. 10 ETH released. On-chain. Forever." },
+            { term: "Direct Evidence", def: `A receipt submission with isProxy = false. Earns severity × ${receiptRewardMultiplier.toLocaleString()} $GHOSTED up to the max cap of ${maxGhostedPerSubmission.toLocaleString()}.` },
+            { term: "Proxy Evidence", def: "A stored receipt with isProxy = true. It is recorded on-chain but pays no direct reward." },
+            { term: "Direct Assertion Counter", def: "The totalTruthAssertions value returned by getProtocolStats. It increments on direct receipt submission." },
+            { term: "Truth Stake", def: "A separate per-story stake created with assertTruth(proofHash, believesReal)." },
+            { term: "Base Unlock Price", def: "The starting story price: 500 $GHOSTED." },
+            { term: "Credibility Unlock Floor", def: "The minimum token credibility required before a credibility unlock can succeed: 1,000." },
+            { term: "Protocol Revenue", def: `The 70% portion of each ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH submission fee retained by the contract.` },
+            { term: "Treasury Distributed", def: `The 30% portion of each ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH submission fee already forwarded to treasury.` },
+            { term: "$GHOSTED", def: "The ERC-20 style token used for direct rewards, story unlocks, and truth staking." },
+            { term: "Gaslight Flag", def: "A boolean exposed by getProtocolStats once total evidence reaches 10." },
+            { term: "Description Hash", def: "keccak256(description). The contract stores this hash, not the plain text." },
+            { term: "Protocol Pool", def: "Frontend label for totalProtocolRevenue, not a milestone payout bucket." },
+            { term: "Story Public", def: "A receipt story the submitter has explicitly opened for everyone." },
+            { term: "Access Locked", def: "The story is still private and the current wallet has not unlocked it yet." },
           ].map(({ term, def }) => (
             <div key={term} className="bg-card border border-white/5 rounded-lg p-4">
               <p className="font-bold font-mono text-sm text-primary mb-1">{term}</p>
@@ -275,137 +289,26 @@ export function HowToUse() {
         </div>
       </section>
 
-      {/* Credibility */}
-        <section className="flex flex-col gap-6">
-          <SectionLabel icon={<CheckCircle2 className="w-4 h-4" />} label="CREDIBILITY" />
-          <h2 className="text-3xl font-black">Your receipts carry weight — literally.</h2>
-          <p className="text-muted-foreground leading-relaxed">
-            Not all receipts are equal. The contract tracks a credibility score for each wallet based on how long you've held, 
-            whether you've burned, and whether you've sold. A higher score means the same ghosting event logs heavier — 
-            earning you more $GHOSTED per submission.
-          </p>
-          <div className="grid sm:grid-cols-3 gap-4">
-            <div className="bg-card border border-emerald-500/20 rounded-xl p-5 space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs font-bold">
-                <CheckCircle2 className="w-3.5 h-3.5" /> HOLD FOR 7+ DAYS
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">Loyalty bonus: credibility grows proportional to balance × days held. No action required — just don't sell.</p>
-            </div>
-            <div className="bg-card border border-orange-500/20 rounded-xl p-5 space-y-2">
-              <div className="flex items-center gap-2 text-orange-400 font-mono text-xs font-bold">
-                <Flame className="w-3.5 h-3.5" /> BURN $GHOSTED
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">Each burned token gives you 5× credibility boost. You sacrifice supply, the contract rewards you with trust. Burns also reduce total supply forever.</p>
-            </div>
-            <div className="bg-card border border-destructive/20 rounded-xl p-5 space-y-2">
-              <div className="flex items-center gap-2 text-destructive font-mono text-xs font-bold">
-                <HeartCrack className="w-3.5 h-3.5" /> SELLING HURTS SCORE
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">Selling tokens drops your credibility proportional to how much you sold vs. what you held. Credibility doesn't reset instantly.</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Staking */}
-        <section className="flex flex-col gap-6">
-          <SectionLabel icon={<Lock className="w-4 h-4" />} label="STAKING" />
-          <h2 className="text-3xl font-black">Stake to unlock credibility metadata.</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-4">
-              <p className="text-muted-foreground leading-relaxed">
-                Staking a minimum of <span className="text-white font-bold">10,000 $GHOSTED</span> unlocks credibility metadata — 
-                an on-chain record of your ghosting history, drama type patterns, and submission track record.
-              </p>
-              <p className="text-muted-foreground leading-relaxed">
-                Once staked, your evidence submissions carry a proof value multiplier. 
-                You also earn <span className="text-primary font-bold">1,000+ $GHOSTED</span> voting power, 
-                letting you participate in governance votes and truth assertions.
-              </p>
-            </div>
-            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-4">
-              <p className="font-mono text-xs text-muted-foreground font-bold mb-2">STAKING REQUIREMENTS</p>
-              <div className="space-y-3">
-                {[
-                  { label: "Minimum stake",            value: "10,000 $GHOSTED" },
-                  { label: "Minimum holding period",   value: "7 days before boost" },
-                  { label: "Minimum voting power",     value: "1,000 $GHOSTED" },
-                  { label: "Max reward per submission", value: "100,000 $GHOSTED" },
-                ].map((r) => (
-                  <div key={r.label} className="flex justify-between py-2 border-b border-white/5 last:border-0">
-                    <span className="font-mono text-xs text-muted-foreground">{r.label}</span>
-                    <span className="font-mono text-xs font-bold text-primary">{r.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Burning */}
-        <section className="flex flex-col gap-6">
-          <SectionLabel icon={<Flame className="w-4 h-4" />} label="BURNING" />
-          <h2 className="text-3xl font-black">Burn the evidence. Reduce the supply.</h2>
-          <div className="bg-card border border-orange-500/10 rounded-xl p-6 space-y-4">
-            <p className="text-muted-foreground leading-relaxed">
-              Burning $GHOSTED is the most credibility-efficient action in the protocol. 
-              Every burned token permanently removes it from circulation and gives you a <span className="text-orange-400 font-bold">5× credibility multiplier</span> — 
-              far more than simply holding.
+      <section className="flex flex-col gap-6">
+        <SectionLabel icon={<CheckCircle2 className="w-4 h-4" />} label="NOT IN THIS BUILD" />
+        <h2 className="text-3xl font-black">What the contract does not do</h2>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
+            <p className="font-mono text-xs text-primary font-bold">NOT IMPLEMENTED</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              No heartbreak buildup, no drift meter, no no-return probability, no fork threshold, no milestone ETH reward schedule,
+              and no VRF legendary payout exist in the deployed GhostProtocol contract.
             </p>
-            <p className="text-muted-foreground leading-relaxed">
-              This creates a natural pressure: holders who believe in the long-term are incentivized to burn, 
-              which reduces supply, raises scarcity, and makes remaining $GHOSTED more valuable. 
-              The receipt submission economy rewards those who commit.
+          </div>
+          <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
+            <p className="font-mono text-xs text-primary font-bold">ALSO NOT IMPLEMENTED</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Direct reward payouts are not boosted by hold time, staking, or sell behavior. The only credibility usage in this build is
+              story unlocking and oracle-resolved truth staking.
             </p>
-            <div className="flex items-center justify-between p-4 bg-orange-500/5 border border-orange-500/10 rounded-lg mt-2">
-              <div>
-                <p className="font-mono text-xs font-bold text-orange-400">BURN CREDIBILITY FORMULA</p>
-                <p className="font-mono text-xs text-muted-foreground mt-1">credibilityGained = tokensBurned × 5</p>
-              </div>
-              <Flame className="w-6 h-6 text-orange-400 opacity-70" />
-            </div>
           </div>
-        </section>
-
-        {/* Emotional Debt + Voting */}
-        <section className="flex flex-col gap-6">
-          <SectionLabel icon={<Vote className="w-4 h-4" />} label="EMOTIONAL DEBT + VOTING" />
-          <h2 className="text-3xl font-black">The emotional ledger. The community vote.</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
-              <div className="flex items-center gap-2 mb-2">
-                <HeartCrack className="w-4 h-4 text-destructive" />
-                <h3 className="font-mono text-sm font-bold">EMOTIONAL DEBT</h3>
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Every time you and the person who ghosted you are further apart in "score" — your love score vs. their love score — 
-                the gap accumulates as emotional debt. It ticks up automatically.
-              </p>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Once you've logged 10+ receipts (<span className="text-white font-semibold">gaslight override</span> unlocked), 
-                emotional debt becomes reducible — by 33% at that threshold, 
-                and by even more if you can assert enough verified truth on-chain.
-              </p>
-            </div>
-            <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Vote className="w-4 h-4 text-primary" />
-                <h3 className="font-mono text-sm font-bold">VOTING</h3>
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Any wallet with 1,000+ $GHOSTED can cast votes on protocol decisions. 
-                Voting power scales with how much you hold — 
-                bigger bags, louder voice.
-              </p>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Upcoming vote topics include: drama type weighting, treasury spend allocation, 
-                and milestone reward thresholds. Stakers get boosted voting weight.
-              </p>
-              <div className="p-3 bg-primary/5 border border-primary/10 rounded-lg mt-1">
-                <p className="font-mono text-xs text-primary font-bold">MINIMUM VOTING POWER: 1,000 $GHOSTED</p>
-              </div>
-            </div>
-          </div>
-        </section>
+        </div>
+      </section>
 
       {/* CTA */}
       <div className="text-center flex flex-col items-center gap-6 py-8 border-t border-white/5">

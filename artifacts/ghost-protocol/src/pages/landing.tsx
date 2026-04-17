@@ -1,9 +1,14 @@
 import { Link } from "wouter";
+import { ghostProtocolUiConstants } from "@workspace/ghost-contract";
 import { Ghost, ArrowRight, Zap, Skull, ShieldAlert, ChevronDown, Flame, LineChart, Activity, Lock } from "lucide-react";
-import { useGetGhostMetrics, getGetGhostMetricsQueryKey } from "@workspace/api-client-react";
+import { useGhostProtocolStats } from "@/hooks/use-ghost-protocol";
+import { formatEthAmount } from "@/lib/ghost-protocol-client";
+
+const receiptRewardMultiplier = Number(ghostProtocolUiConstants.receiptRewardMultiplier);
+const maxGhostedPerSubmission = Number(ghostProtocolUiConstants.maxGhostedPerSubmission / 10n ** 18n);
 
 export function Landing() {
-  const { data: metrics, isLoading } = useGetGhostMetrics({ query: { queryKey: getGetGhostMetricsQueryKey() } });
+  const { data: stats, isLoading } = useGhostProtocolStats();
 
   return (
     <div className="flex flex-col w-full">
@@ -23,8 +28,8 @@ export function Landing() {
           </h1>
           
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-10 font-mono animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300">
-            $GHOST is the first memecoin powered by getting ignored. 
-            A monument to every unreturned text, every "we should catch up," and the painful math of being left on read.
+            $GHOSTED is the token wired into GhostProtocol. Submit direct evidence, pay a fixed {formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH receipt fee,
+            and watch the live contract state update without mocks.
           </p>
           
           <div className="flex flex-col sm:flex-row items-center gap-4 animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-500">
@@ -46,32 +51,25 @@ export function Landing() {
       {/* Metrics Marquee */}
       <div className="w-full bg-primary/10 border-y border-primary/20 overflow-hidden py-4 backdrop-blur-md relative z-10">
         <div className="flex gap-12 items-center whitespace-nowrap animate-[marquee_30s_linear_infinite] font-mono text-sm tracking-wider">
-          {!isLoading && metrics && (
+          {!isLoading && stats && (
             <>
-              <span className="text-primary font-bold">GHOSTING RATE: {metrics.ghostingIndex.toFixed(2)}%</span>
+              <span className="text-primary font-bold">DIRECT: {stats.directEvidence}</span>
               <span className="text-muted-foreground">•</span>
-              <span className="text-white">HEARTBREAK SCORE: {metrics.heartbreakScore}/100</span>
+              <span className="text-white">TOTAL: {stats.totalEvidence}</span>
               <span className="text-muted-foreground">•</span>
-              <span className="text-primary font-bold">TEXTS IGNORED: {metrics.readReceiptsIgnored.toLocaleString()}</span>
+              <span className="text-primary font-bold">DIRECT ASSERTIONS: {stats.totalTruthAssertions}</span>
               <span className="text-muted-foreground">•</span>
-              <span className="text-white">HOLDERS: {metrics.holders.toLocaleString()}</span>
+              <span className="text-white">REVENUE: {(Number(stats.revenueCollected) / 1e18).toFixed(2)} ETH</span>
               <span className="text-muted-foreground">•</span>
-              <span className="text-primary font-bold">LEFT ON READ RATE: {(metrics.rejectionRate).toFixed(1)}%</span>
+              <span className="text-primary font-bold">GHOSTED: {(Number(stats.rewardedGhosted) / 1e18 / 1_000_000).toFixed(1)}M</span>
             </>
           )}
-          {/* Duplicate for seamless loop */}
-          {!isLoading && metrics && (
+          {!isLoading && stats && (
             <>
               <span className="text-muted-foreground">•</span>
-              <span className="text-primary font-bold">GHOSTING RATE: {metrics.ghostingIndex.toFixed(2)}%</span>
+              <span className="text-primary font-bold">DIRECT: {stats.directEvidence}</span>
               <span className="text-muted-foreground">•</span>
-              <span className="text-white">HEARTBREAK SCORE: {metrics.heartbreakScore}/100</span>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-primary font-bold">TEXTS IGNORED: {metrics.readReceiptsIgnored.toLocaleString()}</span>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-white">HOLDERS: {metrics.holders.toLocaleString()}</span>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-primary font-bold">LEFT ON READ RATE: {(metrics.rejectionRate).toFixed(1)}%</span>
+              <span className="text-white">TOTAL: {stats.totalEvidence}</span>
             </>
           )}
         </div>
@@ -86,9 +84,10 @@ export function Landing() {
                 <Activity className="w-3 h-3 text-primary" />
                 HOW IT WORKS
               </div>
-              <h2 className="text-4xl md:text-5xl font-black">WE TOKENIZED THE SILENCE.</h2>
+              <h2 className="text-4xl md:text-5xl font-black">WE PUT THE RECEIPTS ON-CHAIN.</h2>
               <p className="text-xl text-muted-foreground font-mono leading-relaxed">
-                GhostProtocol watches the space between two people. The moment someone stops replying, the smart contract logs a Ghost Event — and the distance starts to grow.
+                GhostProtocol records proof hashes, severity, fee splits, and unlockable stories. Direct submissions pay
+                $GHOSTED to the submitter; proxy submissions stay as ledger entries with no token payout.
               </p>
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-4 p-4 rounded-lg bg-card border border-white/5">
@@ -96,8 +95,8 @@ export function Landing() {
                     <Flame className="w-6 h-6 text-primary" />
                   </div>
                   <div>
-                    <h4 className="font-bold font-mono">EVERY IGNORED TEXT BURNS $GHOST</h4>
-                    <p className="text-sm text-muted-foreground">Their silence destroys tokens. It's not just emotional damage anymore.</p>
+                    <h4 className="font-bold font-mono">EVERY RECEIPT COSTS {formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH</h4>
+                    <p className="text-sm text-muted-foreground">30% goes to treasury. The remaining 70% stays in GhostProtocol as protocol revenue.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 p-4 rounded-lg bg-card border border-white/5">
@@ -105,8 +104,8 @@ export function Landing() {
                     <LineChart className="w-6 h-6 text-primary" />
                   </div>
                   <div>
-                    <h4 className="font-bold font-mono">EARN FROM BEING LEFT ON READ</h4>
-                    <p className="text-sm text-muted-foreground">Holders earn rewards every time someone gets ghosted.</p>
+                    <h4 className="font-bold font-mono">DIRECT PROOF PAYS $GHOSTED</h4>
+                    <p className="text-sm text-muted-foreground">Direct receipts pay severity × {receiptRewardMultiplier.toLocaleString()}, capped at {maxGhostedPerSubmission.toLocaleString()} $GHOSTED. Proxy receipts pay nothing.</p>
                   </div>
                 </div>
               </div>
@@ -117,19 +116,19 @@ export function Landing() {
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
                 <div className="space-y-6 font-mono text-sm">
                   <div className="flex justify-between border-b border-white/10 pb-4">
-                    <span className="text-muted-foreground">checking if they replied...</span>
-                    <span className="text-primary">RUNNING</span>
+                    <span className="text-muted-foreground">contract deployment</span>
+                    <span className="text-primary">LIVE</span>
                   </div>
                   <div className="flex justify-between border-b border-white/10 pb-4">
-                    <span className="text-muted-foreground">last seen: 3 days ago</span>
-                    <span className="text-destructive">GHOSTED</span>
+                    <span className="text-muted-foreground">proof hash uniqueness</span>
+                    <span className="text-primary">ENFORCED</span>
                   </div>
                   <div className="flex justify-between border-b border-white/10 pb-4">
-                    <span className="text-muted-foreground">relationship status updated</span>
-                    <span className="text-primary">LOGGED</span>
+                    <span className="text-muted-foreground">base story unlock</span>
+                    <span className="text-primary">500 GHOSTED</span>
                   </div>
                   <div className="pt-4 text-center text-xs text-muted-foreground animate-pulse">
-                    WAITING FOR THEIR RESPONSE...
+                    TRUTH STAKE: 100 GHOSTED
                   </div>
                 </div>
               </div>
@@ -142,10 +141,10 @@ export function Landing() {
       <section className="py-32 relative border-b border-white/5 bg-card/50">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center mb-20">
-            <h2 className="text-4xl md:text-6xl font-black mb-6">THE MATH OF BEING IGNORED</h2>
+            <h2 className="text-4xl md:text-6xl font-black mb-6">THE CONTRACT STATE THAT MATTERS</h2>
             <p className="text-xl text-muted-foreground font-mono">
-              GhostProtocol tracks every stage of being ghosted and turns it into real, on-chain consequences.
-              When they drift away, the whole market feels it.
+              The live UI is only useful if the labels match the code. These are the mechanics the deployed contract
+              actually exposes today.
             </p>
           </div>
 
@@ -153,27 +152,28 @@ export function Landing() {
             <div className="p-8 rounded-xl bg-background border border-white/5 relative overflow-hidden group hover:border-primary/50 transition-colors">
               <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               <Zap className="w-10 h-10 text-primary mb-6" />
-              <h3 className="text-xl font-bold mb-4 font-mono">BEING LEFT ON READ</h3>
+              <h3 className="text-xl font-bold mb-4 font-mono">ON-CHAIN EVIDENCE</h3>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                Every ignored text pushes the ghosting meter higher, triggering automatic token burns. Their silence literally destroys value. It hurts — but now it pays.
+                Each proof hash can only be submitted once. The contract stores timestamp, severity, drama type,
+                submitter, payout amount, and a hash of the optional description.
               </p>
             </div>
             
             <div className="p-8 rounded-xl bg-background border border-white/5 relative overflow-hidden group hover:border-destructive/50 transition-colors">
               <div className="absolute inset-0 bg-gradient-to-br from-destructive/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               <ShieldAlert className="w-10 h-10 text-destructive mb-6" />
-              <h3 className="text-xl font-bold mb-4 font-mono text-destructive">THE SILENT TREATMENT</h3>
+              <h3 className="text-xl font-bold mb-4 font-mono text-destructive">LOCKED STORIES</h3>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                Once you hit the danger zone — full ghosting mode — wallets caught in active ghosting loops get locked out. No trading. No escape. Just you and the silence.
+                Every receipt initializes a locked story at 500 GHOSTED. Users can unlock with token burn, ETH, or enough credibility.
               </p>
             </div>
 
             <div className="p-8 rounded-xl bg-background border border-white/5 relative overflow-hidden group hover:border-white/30 transition-colors">
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               <Skull className="w-10 h-10 text-white mb-6" />
-              <h3 className="text-xl font-bold mb-4 font-mono">IT'S OFFICIALLY OVER</h3>
+              <h3 className="text-xl font-bold mb-4 font-mono">TRUTH STAKES</h3>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                When two people have drifted too far apart, the contract marks it permanent. Two separate paths, forever on-chain. There's no coming back from this one.
+                Separate from direct receipt counting, users can stake 100 GHOSTED on a proof hash and wait for oracle resolution.
               </p>
             </div>
           </div>
@@ -187,7 +187,7 @@ export function Landing() {
           <div className="text-center max-w-4xl mx-auto mb-16">
             <h2 className="text-4xl md:text-5xl font-black mb-6">LOG YOUR RECEIPTS</h2>
             <p className="text-xl text-muted-foreground font-mono">
-              The contract lives on real ghosting data. Submit your read receipts and ignored texts — your pain feeds the protocol and makes $GHOST stronger.
+              The contract lives on real submissions. Send a unique proof hash, set severity, and the dashboard updates from the chain.
             </p>
           </div>
           
@@ -234,7 +234,7 @@ export function Landing() {
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-5xl md:text-7xl font-black mb-8">STOP CHECKING YOUR PHONE.</h2>
           <p className="text-xl text-muted-foreground font-mono max-w-2xl mx-auto mb-12">
-            They aren't going to text back. But the contract is still running. Watch the ghosting level climb, log your receipts, and let the void stare back.
+            They aren&apos;t going to text back. But the contract is still running. Watch the receipt ledger update, log your evidence, and let the chain keep score.
           </p>
           <Link href="/dashboard" className="h-16 px-12 inline-flex items-center justify-center rounded-md bg-primary text-white font-bold font-mono hover:bg-primary/90 transition-all text-lg shadow-[0_0_40px_rgba(139,92,246,0.4)] hover:shadow-[0_0_60px_rgba(139,92,246,0.6)]">
             SEE WHAT'S HAPPENING

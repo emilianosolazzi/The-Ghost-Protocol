@@ -1,0 +1,22 @@
+{
+  "name": "@workspace/ghost-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node ./scripts/compile.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "hardhat:node": "hardhat node",
+    "hardhat:deploy": "hardhat run scripts/hardhat/deploy.ts --network localhost"
+  },
+  "dependencies": {
+    "solc": "^0.8.30",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9"
+  }
+}

@@ -53,3 +53,21 @@ export const ghostEvidenceTable = pgTable("ghost_evidence", {
 export const insertGhostEvidenceSchema = createInsertSchema(ghostEvidenceTable).omit({ id: true, createdAt: true });
 export type InsertGhostEvidence = z.infer<typeof insertGhostEvidenceSchema>;
 export type GhostEvidence = typeof ghostEvidenceTable.$inferSelect;
+
+export const ghostSubmissionArchiveTable = pgTable("ghost_submission_archive", {
+  id: serial("id").primaryKey(),
+  submitterAddress: text("submitter_address").notNull(),
+  proofHash: text("proof_hash").notNull(),
+  txHash: text("tx_hash").notNull().unique(),
+  severity: integer("severity").notNull(),
+  description: text("description").notNull().default(""),
+  dramaType: text("drama_type").notNull().default("general"),
+  isProxy: boolean("is_proxy").notNull().default(false),
+  reward: real("reward").notNull().default(0),
+  chainId: integer("chain_id"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type GhostSubmissionArchiveEntry = typeof ghostSubmissionArchiveTable.$inferSelect;

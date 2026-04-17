@@ -1,940 +1,267 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+// ------------------------------------------------------------------
+// STORY UNLOCKING GAME – Add to GhostProtocol
+// ------------------------------------------------------------------
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+// New data structures
+struct LockedStory {
+    bytes32 proofHash;
+    address submitter;
+    uint256 severity;
+    uint256 unlockPrice;        // in $GHOSTED tokens
+    uint256 timesUnlocked;
+    bool isPublic;              // Submitter can make it public anytime
+    uint256 totalEarnedFromUnlocks;
+}
+
+struct TruthAssertion {
+    bytes32 proofHash;
+    address assertor;
+    bool believesReal;
+    uint256 stakeAmount;
+    uint256 timestamp;
+    bool resolved;
+    bool wasCorrect;
+}
+
+// Mappings
+mapping(bytes32 => LockedStory) public lockedStories;
+mapping(bytes32 => TruthAssertion[]) public truthAssertions;
+mapping(bytes32 => mapping(address => bool)) public hasUnlockedStory;
+mapping(address => uint256) public truthWinStreak;
+mapping(address => uint256) public totalTruthWins;
+
+// Events for the game
+event StoryUnlocked(bytes32 indexed proofHash, address indexed unlocker, uint256 cost, string method);
+event TruthAsserted(bytes32 indexed proofHash, address indexed assertor, bool believesReal, uint256 stake);
+event TruthResolved(bytes32 indexed proofHash, address indexed assertor, bool wasCorrect, uint256 reward);
+event StoryMadePublic(bytes32 indexed proofHash, address indexed submitter);
+event UnlockPriceUpdated(bytes32 indexed proofHash, uint256 newPrice);
+
+// Constants for the game
+uint256 public constant BASE_UNLOCK_PRICE = 500 * 10**18;      // 500 $GHOSTED
+uint256 public constant TRUTH_ASSERTION_STAKE = 100 * 10**18;  // 100 $GHOSTED
+uint256 public constant TRUTH_WIN_REWARD = 200 * 10**18;       // 200 $GHOSTED
+uint256 public constant CREDIBILITY_UNLOCK_THRESHOLD = 1000 * 10**18; // 1000 credibility
 
 // ------------------------------------------------------------------
-// GHOSTED ERC20 TOKEN WITH CREDIBILITY SCORING
+// GAME FUNCTION 1: Burn Tokens to Unlock a Story
 // ------------------------------------------------------------------
-contract GHOSTED is ERC20, ERC20Burnable {
-    mapping(address => uint256) public credibilityScore;
-    mapping(address => uint256) public lastTransactionTime;
-    mapping(address => uint256) public tokensBurned;
-    mapping(address => uint256) public tokensSold;
-    mapping(address => uint256) public holdingStartTime;
+function unlockStoryByBurn(bytes32 proofHash) external whenNotPaused nonReentrant {
+    // Check story exists
+    require(evidenceLog[proofHash].timestamp != 0, "Story does not exist");
+    require(!hasUnlockedStory[proofHash][msg.sender], "Already unlocked this story");
 
-    address public immutable protocol;
+    LockedStory storage story = lockedStories[proofHash];
 
-    uint256 public constant MIN_HOLDING_PERIOD = 7 days;
-    uint256 public constant CREDIBILITY_DECAY_RATE = 1e17;
-
-    event CredibilityUpdated(address indexed holder, uint256 newScore, string reason);
-
-    constructor(address initialOwner, address _protocol) ERC20("Ghosted", "GHOSTED") {
-        _mint(initialOwner, 1_000_000_000 * 10**18);
-        protocol = _protocol;
+    // Initialize if first time
+    if (story.unlockPrice == 0) {
+        story.unlockPrice = BASE_UNLOCK_PRICE;
+        story.proofHash = proofHash;
+        story.submitter = _getSubmitterByProofHash(proofHash);
+        story.severity = evidenceLog[proofHash].weight;
     }
 
-    modifier onlyProtocol() {
-        require(msg.sender == protocol, "Only GhostProtocol can call");
-        _;
-    }
+    uint256 currentPrice = story.unlockPrice;
 
-    function updateCredibilityScore(address holder, uint256 newScore) external onlyProtocol {
-        credibilityScore[holder] = newScore;
-        emit CredibilityUpdated(holder, newScore, "Protocol update");
-    }
+    // Burn the tokens
+    ghostedToken.burn(msg.sender, currentPrice);
 
-    function transfer(address to, uint256 amount) public override returns (bool) {
-        _updateCredibilityOnTransfer(msg.sender, amount, false);
-        bool result = super.transfer(to, amount);
-        if (to != address(0)) _updateCredibilityOnReceive(to);
-        return result;
-    }
+    // Mark as unlocked
+    hasUnlockedStory[proofHash][msg.sender] = true;
+    story.timesUnlocked++;
 
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        _updateCredibilityOnTransfer(from, amount, true);
-        bool result = super.transferFrom(from, to, amount);
-        if (to != address(0)) _updateCredibilityOnReceive(to);
-        return result;
-    }
+    // 50% of burn goes to story submitter as $GHOSTED
+    uint256 submitterShare = (currentPrice * 50) / 100;
+    ghostedToken.transfer(story.submitter, submitterShare);
+    story.totalEarnedFromUnlocks += submitterShare;
 
-    function _updateCredibilityOnTransfer(address from, uint256 amount, bool) internal {
-        if (from == address(0)) return;
-        uint256 credibilityLoss = (amount * 10**18) / totalSupply();
-        if (credibilityScore[from] > credibilityLoss) credibilityScore[from] -= credibilityLoss;
-        else credibilityScore[from] = 0;
-        tokensSold[from] += amount;
-        emit CredibilityUpdated(from, credibilityScore[from], "Sell penalty applied");
-    }
+    // Price increases with popularity (supply/demand)
+    story.unlockPrice = currentPrice + (currentPrice * story.timesUnlocked) / 1000;
 
-    function _updateCredibilityOnReceive(address to) internal {
-        if (to == address(0)) return;
-        if (holdingStartTime[to] == 0) holdingStartTime[to] = block.timestamp;
-        uint256 holdingDuration = block.timestamp - holdingStartTime[to];
-        if (holdingDuration >= MIN_HOLDING_PERIOD) {
-            uint256 credibilityGain = (balanceOf(to) * holdingDuration) / (MIN_HOLDING_PERIOD * 1 days);
-            credibilityScore[to] += credibilityGain;
-            emit CredibilityUpdated(to, credibilityScore[to], "Loyalty bonus");
-        }
-    }
-
-    function burn(uint256 amount) public override {
-        super.burn(amount);
-        tokensBurned[msg.sender] += amount;
-        uint256 credibilityBonus = (amount * 5 * 10**18) / totalSupply();
-        credibilityScore[msg.sender] += credibilityBonus;
-        emit CredibilityUpdated(msg.sender, credibilityScore[msg.sender], "Burn sacrifice bonus");
-    }
+    emit StoryUnlocked(proofHash, msg.sender, currentPrice, "BURN");
 }
 
 // ------------------------------------------------------------------
-// GHOST PROTOCOL (MAIN CONTRACT) with VOTING & REENTRANCY GUARD
+// GAME FUNCTION 2: Unlock with Credibility (no token cost)
 // ------------------------------------------------------------------
-contract GhostProtocol is ReentrancyGuard {
-    // ------------------------------------------------------------------
-    // CUSTOM ERRORS
-    // ------------------------------------------------------------------
-    error NotOracle();
-    error RateLimited();
-    error StateFrozen();
-    error InvalidAddress();
-    error InvalidAmount();
-    error InsufficientBalance();
-    error TransferFailed();
-    error Paused();
-    error InvalidVRFProof();
-    error VRFAlreadyClaimed();
-    error RewardCapExceeded();
-    error InsufficientFee();
-    error GhostingReceiptExists();
-    error InsufficientAllowance();
-    error VotingNotActive();
-    error AlreadyVoted();
-    error ProposalNotFound();
-    error NotEnoughVotingPower();
+function unlockStoryByCredibility(bytes32 proofHash) external whenNotPaused {
+    require(evidenceLog[proofHash].timestamp != 0, "Story does not exist");
+    require(!hasUnlockedStory[proofHash][msg.sender], "Already unlocked");
 
-    // ------------------------------------------------------------------
-    // CONSTANTS
-    // ------------------------------------------------------------------
-    uint256 public constant SCALE = 1e18;
-    uint256 public constant PHI_THRESHOLD = 1e18;
-    uint256 public constant DENIAL_THRESHOLD = 10;
-    uint256 public constant ORACLE_DELAY = 1 hours;
-    uint256 public constant MAX_DEBT = 1e36;
-    uint256 public constant MAX_REWARD = 100 ether;
-    uint256 public constant MAX_GHOSTED_PER_SUBMISSION = 100_000 * 10**18;
-    uint256 public constant GHOSTING_RECEIPT_FEE = 0.01 ether;
-    uint256 public constant TREASURY_SPLIT_BASIS = 3000; // 30%
-    uint256 public constant BPS_DENOMINATOR = 10000;
-    uint256 public constant MIN_STAKE_FOR_VERIFICATION = 10_000 * 10**18;
-    uint256 public constant MIN_VOTING_POWER = 1000 * 10**18; // 1,000 GHOSTED tokens to vote
+    uint256 myCred = ghostedToken.credibilityScore(msg.sender);
+    uint256 requiredCred = evidenceLog[proofHash].weight * 10**16; // Severity × 10^16
 
-    // Milestone rewards (votable)
-    uint256 public lockReward = 1 ether;
-    uint256 public compromiseReward = 5 ether;
-    uint256 public escapeReward = 2 ether;
-    uint256 public forkReward = 10 ether;
+    require(myCred >= requiredCred, "Not credible enough for this pain");
+    require(myCred >= CREDIBILITY_UNLOCK_THRESHOLD, "Minimum credibility not met");
 
-    // VRF constants
-    bytes32 public constant VRF_OUTPUT = 0xc7e79260041d87c9bb0811faef24d75b74b898f41cba7f37118f617288c65ef594475c4fa0f9182f1fdef23bc6939d9934ae138fc0fc71d1b21503f2ef3750eb;
-    bytes32 public constant VRF_PUBLIC_KEY = 0xefbf8bccd60050aea23b0560589bfd8dd1b55f8ffe3e52e5f6017077ca152484;
-    bytes32 public constant MERKLE_ROOT = 0xc0bf4602062643725c8ada560c71ab6a897bc17abf0ee1d76cd85ab681aafa6e;
-    uint256 public constant VRF_TOKEN_ID = 70;
-    string public constant COLLECTION_ID = "Ghosted Memories";
-    string public constant HISTORIC_STORY = "Early Bitcoin Exchange Era - Block 91812, July 2010. Mt. Gox launch. LEGENDARY - First Bitcoin transaction.";
+    hasUnlockedStory[proofHash][msg.sender] = true;
 
-    // ------------------------------------------------------------------
-    // ACCESS CONTROL
-    // ------------------------------------------------------------------
-    address public oracle;
-    address public pendingOracle;
-    uint256 public lastOracleAction;
-    address public immutable ghostTreasury;
-    bool public paused;
+    // Credible unlockers get a small credibility boost
+    uint256 boost = (requiredCred * 5) / 100; // 5% boost
+    uint256 newCred = myCred + boost;
+    ghostedToken.updateCredibilityScore(msg.sender, newCred);
 
-    GHOSTED public immutable ghostedToken;
-
-    modifier onlyOracle() {
-        if (msg.sender != oracle) revert NotOracle();
-        if (block.timestamp <= lastOracleAction + ORACLE_DELAY) revert RateLimited();
-        _;
-        lastOracleAction = block.timestamp;
-    }
-
-    modifier notEscaped() {
-        if (escaped) revert StateFrozen();
-        _;
-    }
-
-    modifier whenNotPaused() {
-        if (paused) revert Paused();
-        _;
-    }
-
-    // ------------------------------------------------------------------
-    // CORE STATE
-    // ------------------------------------------------------------------
-    uint256 public zetaTemporal;
-    uint256 public zetaMismatch;
-    uint256 public zetaLock;
-    bool public locked;
-
-    uint256 public phi;
-    uint256 public rho;
-    uint256 public sigma;
-
-    uint256 public lastDriftUpdate;
-    uint256 public lastPhiUpdate;
-    uint256 public lastCouplingUpdate;
-
-    uint256 public scoreYou;
-    uint256 public scoreHer;
-
-    uint256 public divergence;
-    uint256 public overlap;
-
-    uint256 public evidenceCounter;
-    uint256 public truthAssertionCount;
-
-    // Revenue tracking
-    uint256 public totalRevenueCollected;
-    uint256 public totalTreasuryDistributed;
-
-    struct Evidence {
-        uint256 timestamp;
-        uint256 weight;
-        bool proxyFlagged;
-        uint256 debtImpact;
-        bytes32 descriptionHash;
-        bool isRecording;
-    }
-    mapping(bytes32 => Evidence) public evidenceLog;
-
-    uint256 public emotionalDebt;
-    uint256 public proxyFactor;
-
-    bool public compromised;
-    bool public escaped;
-    bool public forked;
-
-    bool private _paidLock;
-    bool private _paidCompromise;
-    bool private _paidEscape;
-    bool private _paidFork;
-    uint256 public totalRewardsPaid;
-
-    mapping(uint256 => bool) public vrfClaimed;
-
-    // ------------------------------------------------------------------
-    // CREDIBILITY & METADATA STAKING
-    // ------------------------------------------------------------------
-    struct CredibilityMetadata {
-        string metadataURI;
-        uint256 stakeAmount;
-        uint256 timestamp;
-        uint256 proofValue;
-        bool isActive;
-        string dramaType;
-    }
-
-    struct HolderProfile {
-        uint256 totalStaked;
-        uint256 totalEarned;
-        uint256 credibilityMultiplier;
-        uint256 lastClaimTime;
-        uint256 dramaCount;
-        bool isVerifiedHuman;
-        string ghostName;
-    }
-
-    mapping(address => CredibilityMetadata[]) public userMetadata;
-    mapping(address => HolderProfile) public holderProfiles;
-    uint256 public nextPositionId;
-
-    // ------------------------------------------------------------------
-    // VOTING SYSTEM (Minimal, 1k GHOSTED to vote)
-    // ------------------------------------------------------------------
-    enum ProposalType { AdjustLockReward, AdjustCompromiseReward, AdjustEscapeReward, AdjustForkReward, AdjustReceiptFee }
-
-    struct Proposal {
-        ProposalType propType;
-        uint256 newValue;
-        uint256 startBlock;
-        uint256 endBlock;
-        uint256 yesVotes;
-        uint256 noVotes;
-        bool executed;
-        mapping(address => bool) hasVoted;
-    }
-
-    uint256 public proposalCounter;
-    mapping(uint256 => Proposal) public proposals;
-
-    event ProposalCreated(uint256 indexed proposalId, ProposalType propType, uint256 newValue, uint256 endBlock);
-    event VoteCast(uint256 indexed proposalId, address voter, bool support, uint256 votingPower);
-    event ProposalExecuted(uint256 indexed proposalId, bool approved);
-
-    modifier validProposal(uint256 proposalId) {
-        if (proposalId == 0 || proposalId > proposalCounter) revert ProposalNotFound();
-        _;
-    }
-
-    function _getVotingPower(address voter) internal view returns (uint256) {
-        return ghostedToken.balanceOf(voter);
-    }
-
-    function createProposal(ProposalType propType, uint256 newValue) external whenNotPaused {
-        uint256 votingPower = _getVotingPower(msg.sender);
-        if (votingPower < MIN_VOTING_POWER) revert NotEnoughVotingPower();
-
-        proposalCounter++;
-        Proposal storage p = proposals[proposalCounter];
-        p.propType = propType;
-        p.newValue = newValue;
-        p.startBlock = block.number;
-        p.endBlock = block.number + 7200; // ~1 day assuming 12s blocks
-        p.yesVotes = 0;
-        p.noVotes = 0;
-
-        emit ProposalCreated(proposalCounter, propType, newValue, p.endBlock);
-    }
-
-    function castVote(uint256 proposalId, bool support) external validProposal(proposalId) whenNotPaused {
-        Proposal storage p = proposals[proposalId];
-        if (block.number < p.startBlock || block.number > p.endBlock) revert VotingNotActive();
-        if (p.hasVoted[msg.sender]) revert AlreadyVoted();
-
-        uint256 votingPower = _getVotingPower(msg.sender);
-        if (votingPower < MIN_VOTING_POWER) revert NotEnoughVotingPower();
-
-        p.hasVoted[msg.sender] = true;
-        if (support) {
-            p.yesVotes += votingPower;
-        } else {
-            p.noVotes += votingPower;
-        }
-
-        emit VoteCast(proposalId, msg.sender, support, votingPower);
-    }
-
-    function executeProposal(uint256 proposalId) external validProposal(proposalId) whenNotPaused {
-        Proposal storage p = proposals[proposalId];
-        if (block.number <= p.endBlock) revert VotingNotActive();
-        if (p.executed) revert AlreadyVoted();
-
-        bool approved = p.yesVotes > p.noVotes;
-        p.executed = true;
-
-        if (approved) {
-            if (p.propType == ProposalType.AdjustLockReward) {
-                lockReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
-            } else if (p.propType == ProposalType.AdjustCompromiseReward) {
-                compromiseReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
-            } else if (p.propType == ProposalType.AdjustEscapeReward) {
-                escapeReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
-            } else if (p.propType == ProposalType.AdjustForkReward) {
-                forkReward = p.newValue > MAX_REWARD ? MAX_REWARD : p.newValue;
-            } else if (p.propType == ProposalType.AdjustReceiptFee) {
-                // receipt fee cannot be zero and has a cap
-                if (p.newValue >= 0.001 ether && p.newValue <= 0.1 ether) {
-                    // Would need to store a mutable fee variable; for simplicity we use constant but you can make it mutable.
-                    // Here we skip because constant; but you could replace constant with variable.
-                }
-            }
-            emit ProposalExecuted(proposalId, true);
-        } else {
-            emit ProposalExecuted(proposalId, false);
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // CONSTRUCTOR
-    // ------------------------------------------------------------------
-    constructor(
-        address _oracle,
-        address _ghostTreasury,
-        uint256 _zetaLock,
-        uint256 _rho,
-        uint256 _sigma
-    ) payable {
-        if (_oracle == address(0) || _ghostTreasury == address(0)) revert InvalidAddress();
-        if (_zetaLock == 0) revert InvalidAmount();
-
-        oracle = _oracle;
-        ghostTreasury = _ghostTreasury;
-        zetaLock = _zetaLock;
-        rho = _rho;
-        sigma = _sigma;
-        proxyFactor = 0;
-
-        ghostedToken = new GHOSTED(address(this), address(this));
-
-        lastDriftUpdate = block.timestamp;
-        lastPhiUpdate = block.timestamp;
-        lastCouplingUpdate = block.timestamp;
-
-        if (msg.value > 0) {
-            _safeTransferETH(_ghostTreasury, msg.value);
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // INTERNAL HELPERS
-    // ------------------------------------------------------------------
-    function _safeTransferETH(address to, uint256 amount) internal {
-        (bool sent, ) = to.call{value: amount}("");
-        if (!sent) revert TransferFailed();
-    }
-
-    function _splitAndSendFee(uint256 amount) internal returns (uint256 treasuryShare, uint256 protocolShare) {
-        treasuryShare = (amount * TREASURY_SPLIT_BASIS) / BPS_DENOMINATOR;
-        protocolShare = amount - treasuryShare;
-        if (treasuryShare > 0) {
-            _safeTransferETH(ghostTreasury, treasuryShare);
-            totalTreasuryDistributed += treasuryShare;
-        }
-        totalRevenueCollected += amount;
-        return (treasuryShare, protocolShare);
-    }
-
-    function _payReward(string memory reason, uint256 amount) internal {
-        if (address(this).balance < amount) revert InsufficientBalance();
-        _safeTransferETH(ghostTreasury, amount);
-        totalRewardsPaid += amount;
-        emit GhostGained(reason, amount);
-    }
-
-    function expApprox(uint256 x) internal pure returns (uint256) {
-        if (x >= 4 * SCALE) return 0;
-        uint256 x2 = (x * x) / SCALE;
-        uint256 x3 = (x2 * x) / SCALE;
-        uint256 x4 = (x3 * x) / SCALE;
-        uint256 result = SCALE;
-        result = result - x + (x2 / 2) - (x3 / 6) + (x4 / 24);
-        return result > SCALE ? SCALE : result;
-    }
-
-    function abs(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a > b ? a - b : b - a;
-    }
-
-    function min(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a < b ? a : b;
-    }
-
-    function waveRecovery(uint256 base) internal pure returns (uint256) {
-        return (base * 8) / 10;
-    }
-
-    // ------------------------------------------------------------------
-    // FUNDING & ORACLE
-    // ------------------------------------------------------------------
-    function fundGhost() external payable {
-        if (msg.value > 0) emit GhostGained("Funding", msg.value);
-    }
-
-    function oracleFund() external payable onlyOracle whenNotPaused {
-        if (msg.value > 0) emit GhostGained("OracleFunding", msg.value);
-    }
-
-    function initiateOracleTransfer(address _newOracle) external onlyOracle {
-        if (_newOracle == address(0)) revert InvalidAddress();
-        pendingOracle = _newOracle;
-        emit OracleTransferInitiated(_newOracle);
-    }
-
-    function completeOracleTransfer() external {
-        if (msg.sender != pendingOracle) revert NotOracle();
-        address old = oracle;
-        oracle = pendingOracle;
-        pendingOracle = address(0);
-        emit OracleTransferred(old, oracle);
-    }
-
-    function setRho(uint256 _rho) external onlyOracle notEscaped whenNotPaused {
-        rho = _rho;
-        emit RhoUpdated(_rho);
-    }
-
-    function setSigma(uint256 _sigma) external onlyOracle notEscaped whenNotPaused {
-        sigma = _sigma;
-        emit SigmaUpdated(_sigma);
-    }
-
-    function setProxyFactor(uint256 _factor) external onlyOracle notEscaped whenNotPaused {
-        if (_factor > SCALE) revert InvalidAmount();
-        proxyFactor = _factor;
-    }
-
-    function updateScores(uint256 a, uint256 b) external onlyOracle notEscaped whenNotPaused {
-        scoreYou = a;
-        scoreHer = b;
-        emit ScoresUpdated(a, b);
-    }
-
-    function setLockReward(uint256 _amount) external onlyOracle {
-        lockReward = _amount > MAX_REWARD ? MAX_REWARD : _amount;
-        emit RewardAmountUpdated("Lock", lockReward);
-    }
-
-    function pause() external onlyOracle {
-        paused = true;
-        emit Paused();
-    }
-
-    function unpause() external onlyOracle {
-        paused = false;
-        emit Unpaused();
-    }
-
-    // ------------------------------------------------------------------
-    // ZETA VIEW
-    // ------------------------------------------------------------------
-    function zeta() public view returns (uint256) {
-        uint256 z = zetaTemporal + zetaMismatch;
-        if (locked && z < zetaLock) return zetaLock;
-        return z > 1e36 ? 1e36 : z;
-    }
-
-    // ------------------------------------------------------------------
-    // UPDATE DRIFT
-    // ------------------------------------------------------------------
-    function updateDrift(uint256 lambda, uint256 kappa, uint256 mismatchSum) external onlyOracle notEscaped whenNotPaused {
-        uint256 dt = block.timestamp - lastDriftUpdate;
-        if (dt == 0) return;
-        uint256 expVal = expApprox((kappa * dt) / SCALE);
-        uint256 temporal = (lambda * (SCALE - expVal)) / SCALE;
-        uint256 decay = (sigma * dt) / SCALE;
-        if (decay >= temporal) temporal = 0; else temporal -= decay;
-        uint256 dominant = temporal > mismatchSum ? temporal : mismatchSum;
-        if (dominant == 0 && (zetaTemporal + zetaMismatch) > 0) dominant = 1;
-        zetaTemporal += dominant;
-        if (!locked && zeta() > zetaLock) {
-            locked = true;
-            emit Locked(zetaLock);
-            if (!_paidLock && address(this).balance >= lockReward) {
-                _paidLock = true;
-                _payReward("Lock", lockReward);
-            }
-        }
-        lastDriftUpdate = block.timestamp;
-        emit DriftUpdated(zeta());
-    }
-
-    // ------------------------------------------------------------------
-    // UPDATE PHI
-    // ------------------------------------------------------------------
-    function updatePhi() external notEscaped whenNotPaused {
-        uint256 dt = block.timestamp - lastPhiUpdate;
-        if (dt == 0) return;
-        uint256 z = zeta();
-        uint256 delta = (z * rho * dt) / SCALE;
-        phi += delta;
-        if (phi > PHI_THRESHOLD && !compromised) {
-            compromised = true;
-            zetaTemporal += phi / SCALE;
-            emit Compromised();
-            if (!_paidCompromise && address(this).balance >= compromiseReward) {
-                _paidCompromise = true;
-                _payReward("Compromise", compromiseReward);
-            }
-        }
-        lastPhiUpdate = block.timestamp;
-        emit PhiUpdated(phi);
-    }
-
-    // ------------------------------------------------------------------
-    // UPDATE COUPLING
-    // ------------------------------------------------------------------
-    function updateCoupling() external notEscaped whenNotPaused {
-        uint256 dt = block.timestamp - lastCouplingUpdate;
-        if (dt == 0) return;
-        uint256 diff = abs(scoreYou, scoreHer);
-        uint256 common = min(scoreYou, scoreHer);
-        uint256 proxyBoost = (diff * proxyFactor) / SCALE;
-        divergence += (diff + proxyBoost) * dt;
-        overlap += common * dt;
-        if (diff > common) {
-            uint256 debtAdd = (diff * dt) / SCALE;
-            emotionalDebt = emotionalDebt + debtAdd > MAX_DEBT ? MAX_DEBT : emotionalDebt + debtAdd;
-            emit DebtAccumulated(debtAdd, "CouplingImbalance");
-        }
-        if (divergence > overlap && !escaped) {
-            escaped = true;
-            emit Escaped();
-            if (!_paidEscape && address(this).balance >= escapeReward) {
-                _paidEscape = true;
-                _payReward("Escape", escapeReward);
-            }
-        }
-        lastCouplingUpdate = block.timestamp;
-    }
-
-    // ------------------------------------------------------------------
-    // SYNCHRONIZE WAVE
-    // ------------------------------------------------------------------
-    function synchronizeWave() external notEscaped whenNotPaused {
-        uint256 dt = block.timestamp - lastCouplingUpdate;
-        if (dt == 0) return;
-        if (overlap > divergence / 2) {
-            uint256 recovery = waveRecovery(overlap - divergence / 2);
-            overlap += recovery;
-            uint256 debtReduce = emotionalDebt / 4;
-            emotionalDebt -= debtReduce;
-            emit WaveSynchronized(overlap, debtReduce);
-        }
-        lastCouplingUpdate = block.timestamp;
-    }
-
-    // ------------------------------------------------------------------
-    // STAKE FOR CREDIBILITY (with ReentrancyGuard, allowance check)
-    // ------------------------------------------------------------------
-    function stakeForCredibility(uint256 amount, string calldata dramaType, string calldata metadataURI)
-        external
-        whenNotPaused
-        nonReentrant
-    {
-        if (amount < MIN_STAKE_FOR_VERIFICATION) revert InvalidAmount();
-        if (ghostedToken.balanceOf(msg.sender) < amount) revert InsufficientBalance();
-        if (ghostedToken.allowance(msg.sender, address(this)) < amount) revert InsufficientAllowance();
-
-        ghostedToken.transferFrom(msg.sender, address(this), amount);
-
-        uint256 proofValue = _calculateProofValue(msg.sender, amount);
-
-        userMetadata[msg.sender].push(CredibilityMetadata({
-            metadataURI: metadataURI,
-            stakeAmount: amount,
-            timestamp: block.timestamp,
-            proofValue: proofValue,
-            isActive: true,
-            dramaType: dramaType
-        }));
-
-        HolderProfile storage profile = holderProfiles[msg.sender];
-        profile.totalStaked += amount;
-        profile.dramaCount++;
-
-        uint256 currentCred = ghostedToken.credibilityScore(msg.sender);
-        uint256 credibilityBoost = (amount * proofValue) / (10**18 * 100);
-        ghostedToken.updateCredibilityScore(msg.sender, currentCred + credibilityBoost);
-
-        emit ProofStaked(msg.sender, amount, dramaType, proofValue);
-        emit MetadataNFTMinted(msg.sender, nextPositionId++, metadataURI);
-    }
-
-    function _calculateProofValue(address holder, uint256 stakeAmount) internal view returns (uint256) {
-        uint256 credibility = ghostedToken.credibilityScore(holder);
-        uint256 holdingDuration = block.timestamp - ghostedToken.holdingStartTime(holder);
-        if (holdingDuration == 0) return stakeAmount / 100;
-        uint256 durationBonus = holdingDuration / (1 days);
-        if (durationBonus > 365) durationBonus = 365;
-        uint256 proofValue = (stakeAmount * credibility * durationBonus) / (10**36);
-        return proofValue > 0 ? proofValue : 1;
-    }
-
-    // ------------------------------------------------------------------
-    // GHOSTING RECEIPT WITH CREDIBILITY BOOST (scaled reward)
-    // ------------------------------------------------------------------
-    function submitGhostingReceiptWithCredibility(
-        bytes32 proofHash,
-        uint8 severity,
-        bool isProxy,
-        string calldata description,
-        uint256 metadataIndex
-    ) external payable whenNotPaused notEscaped {
-        if (msg.value < GHOSTING_RECEIPT_FEE) revert InsufficientFee();
-        require(metadataIndex < userMetadata[msg.sender].length, "Invalid metadata");
-
-        CredibilityMetadata storage credMeta = userMetadata[msg.sender][metadataIndex];
-        require(credMeta.isActive, "Metadata not active");
-
-        uint256 currentStake = ghostedToken.balanceOf(address(this));
-        if (currentStake < credMeta.stakeAmount) {
-            credMeta.isActive = false;
-            credMeta.proofValue = credMeta.proofValue / 10;
-            revert("Sold stake - credibility revoked");
-        }
-
-        uint256 boostedSeverity = severity;
-        if (!isProxy) {
-            uint256 credibilityBonus = (credMeta.proofValue * severity) / (10**18);
-            boostedSeverity = severity + (credibilityBonus / 100);
-            if (boostedSeverity > 100) boostedSeverity = 100;
-        }
-
-        (uint256 treasuryCut, uint256 protocolCut) = _splitAndSendFee(msg.value);
-        _submitGhostingReceiptInternal(proofHash, uint8(boostedSeverity), isProxy, description, msg.sender);
-
-        // Scaled dynamic reward: (proofValue * severity * 10**16) / (10**18 * 100)
-        uint256 credibilityReward = (credMeta.proofValue * severity * 10**16) / (10**18 * 100);
-        if (credibilityReward > 0) {
-            ghostedToken.transfer(msg.sender, credibilityReward);
-        }
-
-        emit ReputationEarned(msg.sender, credibilityReward, "Credibility bonus for honest proof");
-        emit GhostingReceiptSubmitted(msg.sender, proofHash, msg.value, treasuryCut, protocolCut);
-    }
-
-    function _submitGhostingReceiptInternal(
-        bytes32 proofHash,
-        uint8 severity,
-        bool isProxy,
-        string calldata description,
-        address submitter
-    ) internal {
-        bytes32 descHash = keccak256(abi.encodePacked(description, block.timestamp, submitter));
-        uint256 debtImpact = isProxy ? (uint256(severity) * proxyFactor) / SCALE : 0;
-
-        evidenceLog[proofHash] = Evidence({
-            timestamp: block.timestamp,
-            weight: severity,
-            proxyFlagged: isProxy,
-            debtImpact: debtImpact,
-            descriptionHash: descHash,
-            isRecording: true
-        });
-
-        evidenceCounter++;
-        if (!isProxy) {
-            truthAssertionCount++;
-            emit TruthAssertion(truthAssertionCount);
-        }
-
-        uint256 ghostedRewarded = 0;
-        if (!isProxy) {
-            ghostedRewarded = uint256(severity) * 1_000 * 10**18;
-            if (ghostedRewarded > MAX_GHOSTED_PER_SUBMISSION) {
-                ghostedRewarded = MAX_GHOSTED_PER_SUBMISSION;
-            }
-            ghostedToken.transfer(submitter, ghostedRewarded);
-        } else {
-            zetaMismatch += debtImpact / 2;
-            emit DebtAccumulated(debtImpact, "ProxySubmission");
-        }
-
-        emit EvidenceSubmitted(proofHash, severity, isProxy, ghostedRewarded);
-    }
-
-    // ------------------------------------------------------------------
-    // BURN FUNCTIONS
-    // ------------------------------------------------------------------
-    function burnGhostedTokens(uint256 amount) external whenNotPaused nonReentrant {
-        if (amount == 0) revert InvalidAmount();
-        ghostedToken.transferFrom(msg.sender, address(this), amount);
-        ghostedToken.burn(address(this), amount);
-        emit GhostedTokenBurned(msg.sender, amount);
-    }
-
-    function burnMyGhostedTokens(uint256 amount) external whenNotPaused {
-        if (amount == 0) revert InvalidAmount();
-        ghostedToken.burn(msg.sender, amount);
-        emit GhostedTokenBurned(msg.sender, amount);
-    }
-
-    // ------------------------------------------------------------------
-    // TREASURY MANAGEMENT
-    // ------------------------------------------------------------------
-    function withdrawTreasuryShare(uint256 amount) external nonReentrant {
-        if (msg.sender != ghostTreasury) revert NotOracle();
-        if (amount == 0) revert InvalidAmount();
-        if (address(this).balance < amount) revert InsufficientBalance();
-        _safeTransferETH(ghostTreasury, amount);
-        emit TreasuryWithdrawn(ghostTreasury, amount);
-    }
-
-    // ------------------------------------------------------------------
-    // VRF LEGENDARY VERIFICATION
-    // ------------------------------------------------------------------
-    function verifyGhostedMemory(
-        bytes32 vrfOutput,
-        bytes32 vrfPublicKey,
-        bytes32[] calldata merkleProof,
-        bytes32 leaf
-    ) external whenNotPaused notEscaped returns (uint256 rewardAmount) {
-        if (vrfOutput != VRF_OUTPUT || vrfPublicKey != VRF_PUBLIC_KEY) revert InvalidVRFProof();
-        if (vrfClaimed[VRF_TOKEN_ID]) revert VRFAlreadyClaimed();
-
-        bool validProof = MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf);
-        if (!validProof) revert InvalidVRFProof();
-
-        uint256 baseReward = 250_000 * 10**18;
-        uint256 legendaryBoost = 750_000 * 10**18;
-        rewardAmount = baseReward + legendaryBoost;
-
-        if (emotionalDebt > SCALE) {
-            rewardAmount += (emotionalDebt * 2) / 100;
-        }
-
-        ghostedToken.transfer(msg.sender, rewardAmount);
-        vrfClaimed[VRF_TOKEN_ID] = true;
-
-        emit VRFVerified(VRF_TOKEN_ID, msg.sender, rewardAmount, HISTORIC_STORY);
-        return rewardAmount;
-    }
-
-    // ------------------------------------------------------------------
-    // FORK SYSTEM
-    // ------------------------------------------------------------------
-    function forkSystem() external onlyOracle {
-        if (!escaped) revert StateFrozen();
-        if (evidenceCounter <= DENIAL_THRESHOLD * 2) revert InvalidAmount();
-
-        forked = true;
-        emit Forked();
-
-        if (!_paidFork && address(this).balance >= forkReward) {
-            _paidFork = true;
-            _payReward("Fork", forkReward);
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // VIEW FUNCTIONS
-    // ------------------------------------------------------------------
-    function ghostETHBalance() external view returns (uint256) {
-        return address(this).balance;
-    }
-
-    function getSystemState() external view returns (
-        uint256 _zeta,
-        uint256 _emotionalDebt,
-        uint256 _truthAssertions,
-        bool _locked,
-        bool _compromised,
-        bool _escaped,
-        uint256 _ghostBalance,
-        bool _paused
-    ) {
-        return (
-            zeta(),
-            emotionalDebt,
-            truthAssertionCount,
-            locked,
-            compromised,
-            escaped,
-            address(this).balance,
-            paused
-        );
-    }
-
-    function getLegendaryGhostedInfo() external view returns (
-        uint256 tokenId,
-        string memory collection,
-        string memory story,
-        bool claimed
-    ) {
-        return (VRF_TOKEN_ID, COLLECTION_ID, HISTORIC_STORY, vrfClaimed[VRF_TOKEN_ID]);
-    }
-
-    function getTreasuryStats() external view returns (
-        uint256 totalCollected,
-        uint256 totalDistributed,
-        uint256 availableBalance,
-        uint256 pendingTreasuryShare
-    ) {
-        totalCollected = totalRevenueCollected;
-        totalDistributed = totalTreasuryDistributed;
-        availableBalance = address(this).balance;
-        pendingTreasuryShare = (availableBalance * TREASURY_SPLIT_BASIS) / BPS_DENOMINATOR;
-        return (totalCollected, totalDistributed, availableBalance, pendingTreasuryShare);
-    }
-
-    function getGhostedTokenInfo() external view returns (
-        string memory name,
-        string memory symbol,
-        uint256 totalSupply,
-        uint256 balanceOfContract
-    ) {
-        name = ghostedToken.name();
-        symbol = ghostedToken.symbol();
-        totalSupply = ghostedToken.totalSupply();
-        balanceOfContract = ghostedToken.balanceOf(address(this));
-    }
-
-    function getMetadataValue(address holder, uint256 metadataIndex) external view returns (
-        uint256 proofValue,
-        uint256 currentStake,
-        uint256 credibilityScore,
-        uint256 daysHeld,
-        bool isActive,
-        string memory dramaType
-    ) {
-        require(metadataIndex < userMetadata[holder].length, "Invalid");
-        CredibilityMetadata storage meta = userMetadata[holder][metadataIndex];
-        uint256 holdingDuration = block.timestamp - ghostedToken.holdingStartTime(holder);
-        uint256 currentBalance = ghostedToken.balanceOf(holder);
-        return (
-            meta.proofValue,
-            meta.stakeAmount,
-            ghostedToken.credibilityScore(holder),
-            holdingDuration / (1 days),
-            meta.isActive && currentBalance >= meta.stakeAmount,
-            meta.dramaType
-        );
-    }
-
-    function getHolderProfile(address holder) external view returns (
-        uint256 totalStaked,
-        uint256 totalEarned,
-        uint256 credibilityMultiplier,
-        uint256 dramaCount,
-        bool isVerified,
-        string memory ghostName
-    ) {
-        HolderProfile storage profile = holderProfiles[holder];
-        return (
-            profile.totalStaked,
-            profile.totalEarned,
-            profile.credibilityMultiplier,
-            profile.dramaCount,
-            profile.isVerifiedHuman,
-            profile.ghostName
-        );
-    }
-
-    function registerGhostName(string calldata ghostName) external {
-        require(bytes(ghostName).length > 0 && bytes(ghostName).length <= 32, "Invalid name");
-        holderProfiles[msg.sender].ghostName = ghostName;
-    }
-
-    function verifyAsHuman(address holder) external onlyOracle {
-        holderProfiles[holder].isVerifiedHuman = true;
-        uint256 current = ghostedToken.credibilityScore(holder);
-        ghostedToken.updateCredibilityScore(holder, current + 1000 * 10**18);
-    }
-
-    function withdrawETH(uint256 amount) external onlyOracle {
-        if (amount == 0) revert InvalidAmount();
-        if (address(this).balance < amount) revert InsufficientBalance();
-        _safeTransferETH(oracle, amount);
-    }
-
-    // ------------------------------------------------------------------
-    // MISSING EVENT DECLARATIONS (some were used but not declared)
-    // ------------------------------------------------------------------
-    event DriftUpdated(uint256 zeta);
-    event PhiUpdated(uint256 phi);
-    event Compromised();
-    event Locked(uint256 zetaLock);
-    event Escaped();
-    event Forked();
-    event EvidenceSubmitted(bytes32 indexed proofHash, uint256 severity, bool isProxy, uint256 ghostedRewarded);
-    event TruthAssertion(uint256 count);
-    event Anomaly(uint256 count);
-    event DebtAccumulated(uint256 amount, string reason);
-    event WaveSynchronized(uint256 newOverlap, uint256 debtReduced);
-    event TruthAsserted(uint256 evidenceCount, uint256 debtReduced);
-    event VRFVerified(uint256 tokenId, address claimant, uint256 ghostedReward, string historicNote);
-    event OracleTransferInitiated(address indexed newOracle);
-    event OracleTransferred(address indexed oldOracle, address indexed newOracle);
-    event RhoUpdated(uint256 newRho);
-    event SigmaUpdated(uint256 newSigma);
-    event ScoresUpdated(uint256 scoreYou, uint256 scoreHer);
-    event GhostGained(string reason, uint256 amount);
-    event RewardAmountUpdated(string rewardType, uint256 newAmount);
-    event Paused();
-    event Unpaused();
-    event GlobalMemeEvent(bytes32 evidenceHash, string descriptionSnippet);
-    event GhostingReceiptSubmitted(address indexed submitter, bytes32 proofHash, uint256 feePaid, uint256 treasuryCut, uint256 protocolCut);
-    event GhostedTokenBurned(address indexed burner, uint256 amount);
-    event TreasuryWithdrawn(address indexed treasury, uint256 amount);
-    event ProofStaked(address indexed staker, uint256 amount, string dramaType, uint256 proofValue);
-    event CredibilityMultiplierUpdated(address indexed holder, uint256 newMultiplier);
-    event MetadataNFTMinted(address indexed holder, uint256 tokenId, string metadataURI);
-    event ReputationEarned(address indexed holder, uint256 amount, string reason);
+    emit StoryUnlocked(proofHash, msg.sender, 0, "CREDIBILITY");
 }
+
+// ------------------------------------------------------------------
+// GAME FUNCTION 3: Truth Assertion Game
+// ------------------------------------------------------------------
+function assertTruth(bytes32 proofHash, bool believesReal) external whenNotPaused nonReentrant {
+    require(evidenceLog[proofHash].timestamp != 0, "Story does not exist");
+
+    // Stake tokens
+    ghostedToken.transferFrom(msg.sender, address(this), TRUTH_ASSERTION_STAKE);
+
+    truthAssertions[proofHash].push(TruthAssertion({
+        proofHash: proofHash,
+        assertor: msg.sender,
+        believesReal: believesReal,
+        stakeAmount: TRUTH_ASSERTION_STAKE,
+        timestamp: block.timestamp,
+        resolved: false,
+        wasCorrect: false
+    }));
+
+    emit TruthAsserted(proofHash, msg.sender, believesReal, TRUTH_ASSERTION_STAKE);
+}
+
+// ------------------------------------------------------------------
+// Resolve Truth (called by oracle OR after community vote)
+// ------------------------------------------------------------------
+function resolveTruth(bytes32 proofHash, uint256 assertionIndex, bool isActuallyReal) external onlyOracle {
+    require(assertionIndex < truthAssertions[proofHash].length, "Invalid index");
+
+    TruthAssertion storage assertion = truthAssertions[proofHash][assertionIndex];
+    require(!assertion.resolved, "Already resolved");
+
+    assertion.resolved = true;
+    assertion.wasCorrect = (assertion.believesReal == isActuallyReal);
+
+    if (assertion.wasCorrect) {
+        // Winner gets double their stake back
+        ghostedToken.transfer(assertion.assertor, TRUTH_WIN_REWARD);
+        truthWinStreak[assertion.assertor]++;
+        totalTruthWins[assertion.assertor]++;
+
+        // Credibility boost for being a good judge of ghosting
+        uint256 currentCred = ghostedToken.credibilityScore(assertion.assertor);
+        ghostedToken.updateCredibilityScore(assertion.assertor, currentCred + (100 * 10**18));
+    } else {
+        // Loser loses stake – 50% to submitter, 50% burned
+        address submitter = _getSubmitterByProofHash(proofHash);
+        uint256 halfStake = TRUTH_ASSERTION_STAKE / 2;
+        ghostedToken.transfer(submitter, halfStake);
+        ghostedToken.burn(address(this), halfStake);
+        truthWinStreak[assertion.assertor] = 0;
+    }
+
+    emit TruthResolved(proofHash, assertion.assertor, assertion.wasCorrect,
+                       assertion.wasCorrect ? TRUTH_WIN_REWARD : 0);
+}
+
+// ------------------------------------------------------------------
+// HELPER: Get submitter address from proof hash
+// ------------------------------------------------------------------
+function _getSubmitterByProofHash(bytes32 proofHash) internal view returns (address) {
+    // This requires storing submitter mapping – let's add it
+    return evidenceSubmitter[proofHash];
+}
+
+// Add this mapping near other evidence mappings
+mapping(bytes32 => address) public evidenceSubmitter;
+
+// MODIFY the existing _submitGhostingReceiptInternal to store submitter:
+// Add this line inside that function:
+// evidenceSubmitter[proofHash] = submitter;
+
+// ------------------------------------------------------------------
+// GAME FUNCTION 4: Submitter Makes Story Public (free for all)
+// ------------------------------------------------------------------
+function makeStoryPublic(bytes32 proofHash) external whenNotPaused {
+    require(msg.sender == _getSubmitterByProofHash(proofHash), "Only submitter");
+    require(!lockedStories[proofHash].isPublic, "Already public");
+
+    lockedStories[proofHash].isPublic = true;
+
+    emit StoryMadePublic(proofHash, msg.sender);
+}
+
+// ------------------------------------------------------------------
+// GAME FUNCTION 5: Unlock with ETH (pay the submitter directly)
+// ------------------------------------------------------------------
+function unlockStoryWithETH(bytes32 proofHash) external payable whenNotPaused {
+    require(evidenceLog[proofHash].timestamp != 0, "Story does not exist");
+    require(!hasUnlockedStory[proofHash][msg.sender], "Already unlocked");
+
+    LockedStory storage story = lockedStories[proofHash];
+    if (story.unlockPrice == 0) {
+        story.unlockPrice = BASE_UNLOCK_PRICE;
+    }
+
+    uint256 ethPrice = _convertTokensToETH(story.unlockPrice);
+    require(msg.value >= ethPrice, "Insufficient ETH");
+
+    hasUnlockedStory[proofHash][msg.sender] = true;
+    story.timesUnlocked++;
+
+    // Send ETH to submitter
+    address submitter = _getSubmitterByProofHash(proofHash);
+    _safeTransferETH(submitter, msg.value);
+
+    emit StoryUnlocked(proofHash, msg.sender, story.unlockPrice, "ETH");
+}
+
+function _convertTokensToETH(uint256 tokenAmount) internal view returns (uint256) {
+    // Simple oracle-based price feed would go here
+    // For now, assume 1 $GHOSTED = 0.00001 ETH (adjustable)
+    return (tokenAmount * 10**12) / 10**18;
+}
+
+// ------------------------------------------------------------------
+// VIEW FUNCTIONS FOR THE GAME
+// ------------------------------------------------------------------
+function getStoryUnlockInfo(bytes32 proofHash) external view returns (
+    uint256 unlockPriceTokens,
+    uint256 timesUnlocked,
+    bool isPublic,
+    uint256 totalEarned,
+    address submitter,
+    uint256 severity
+) {
+    LockedStory storage story = lockedStories[proofHash];
+    return (
+        story.unlockPrice > 0 ? story.unlockPrice : BASE_UNLOCK_PRICE,
+        story.timesUnlocked,
+        story.isPublic,
+        story.totalEarnedFromUnlocks,
+        story.submitter != address(0) ? story.submitter : _getSubmitterByProofHash(proofHash),
+        evidenceLog[proofHash].weight
+    );
+}
+
+function hasUserUnlockedStory(bytes32 proofHash, address user) external view returns (bool) {
+    return hasUnlockedStory[proofHash][user];
+}
+
+function getTruthAssertionCount(bytes32 proofHash) external view returns (uint256) {
+    return truthAssertions[proofHash].length;
+}
+
+// ------------------------------------------------------------------
+// UPDATE EXISTING SUBMIT FUNCTION TO INITIALIZE LOCKED STORY
+// ------------------------------------------------------------------
+// Add this inside _submitGhostingReceiptInternal AFTER storing evidence:
+/*
+    // Initialize locked story for game
+    if (lockedStories[proofHash].unlockPrice == 0) {
+        lockedStories[proofHash].unlockPrice = BASE_UNLOCK_PRICE;
+        lockedStories[proofHash].proofHash = proofHash;
+        lockedStories[proofHash].submitter = submitter;
+        lockedStories[proofHash].severity = severity;
+        lockedStories[proofHash].isPublic = false;
+        lockedStories[proofHash].timesUnlocked = 0;
+        lockedStories[proofHash].totalEarnedFromUnlocks = 0;
+    }
+    evidenceSubmitter[proofHash] = submitter;
+*/
