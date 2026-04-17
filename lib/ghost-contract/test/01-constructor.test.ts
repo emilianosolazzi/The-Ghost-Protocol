@@ -25,11 +25,10 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
       const { ghostProtocol } = await deployFixtures();
       const stats = await ghostProtocol.getProtocolStats();
 
-      expect(stats.totalEvidenceSubmissions).to.equal(0n);
-      expect(stats.totalDirectEvidenceRewards).to.equal(0n);
+      expect(stats.totalEvidence).to.equal(0n);
+      expect(stats.rewardedGhosted).to.equal(0n);
       expect(stats.totalTruthAssertions).to.equal(0n);
-      expect(stats.totalDirectAssertionRewards).to.equal(0n);
-      expect(stats.totalTruthBurned).to.equal(0n);
+      expect(stats.burnedGhosted).to.equal(0n);
     });
 
     it("should revert if ghostedToken is zero address", async function () {
@@ -38,7 +37,7 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
 
       await expect(
         GhostProtocol.deploy(
-          ethers.ZeroAddress, // invalid
+          ethers.ZeroAddress,
           treasury.address,
           oracle.address
         )
@@ -54,7 +53,7 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
       await expect(
         GhostProtocol.deploy(
           await token.getAddress(),
-          ethers.ZeroAddress, // invalid
+          ethers.ZeroAddress,
           oracle.address
         )
       ).to.be.revertedWithCustomError(GhostProtocol, "InvalidAddress");
@@ -70,20 +69,37 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
         GhostProtocol.deploy(
           await token.getAddress(),
           treasury.address,
-          ethers.ZeroAddress // invalid
+          ethers.ZeroAddress
         )
       ).to.be.revertedWithCustomError(GhostProtocol, "InvalidAddress");
     });
   });
 
-  describe("transferOwnership", function () {
-    it("should allow owner to transfer ownership", async function () {
+  describe("transferOwnership (two-step)", function () {
+    it("should allow owner to initiate ownership transfer", async function () {
       const { ghostProtocol, deployer, user1 } = await deployFixtures();
 
       const tx = ghostProtocol.transferOwnership(user1.address);
-      await expect(tx).to.emit(ghostProtocol, "OwnershipTransferred");
+      await expect(tx)
+        .to.emit(ghostProtocol, "OwnershipTransferStarted")
+        .withArgs(deployer.address, user1.address);
+
+      expect(await ghostProtocol.pendingOwner()).to.equal(user1.address);
+      expect(await ghostProtocol.owner()).to.equal(deployer.address);
+    });
+
+    it("should allow pending owner to accept ownership", async function () {
+      const { ghostProtocol, deployer, user1 } = await deployFixtures();
+
+      await ghostProtocol.transferOwnership(user1.address);
+
+      const tx = ghostProtocol.connect(user1).acceptOwnership();
+      await expect(tx)
+        .to.emit(ghostProtocol, "OwnershipTransferred")
+        .withArgs(deployer.address, user1.address);
 
       expect(await ghostProtocol.owner()).to.equal(user1.address);
+      expect(await ghostProtocol.pendingOwner()).to.equal(ethers.ZeroAddress);
     });
 
     it("should revert if not owner", async function () {
@@ -91,7 +107,7 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
 
       await expect(
         ghostProtocol.connect(user1).transferOwnership(user2.address)
-      ).to.be.revertedWithCustomError(ghostProtocol, "OnlyOwner");
+      ).to.be.revertedWithCustomError(ghostProtocol, "NotOwner");
     });
 
     it("should revert if new owner is zero address", async function () {
@@ -101,14 +117,26 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
         ghostProtocol.transferOwnership(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(ghostProtocol, "InvalidAddress");
     });
+
+    it("should revert if non-pending-owner tries to accept", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+
+      await ghostProtocol.transferOwnership(user1.address);
+
+      await expect(
+        ghostProtocol.connect(user2).acceptOwnership()
+      ).to.be.revertedWithCustomError(ghostProtocol, "NotPendingOwner");
+    });
   });
 
   describe("setOracle", function () {
     it("should allow owner to set oracle", async function () {
-      const { ghostProtocol, user1 } = await deployFixtures();
+      const { ghostProtocol, oracle, user1 } = await deployFixtures();
 
       const tx = ghostProtocol.setOracle(user1.address);
-      await expect(tx).to.emit(ghostProtocol, "OracleUpdated");
+      await expect(tx)
+        .to.emit(ghostProtocol, "OracleUpdated")
+        .withArgs(oracle.address, user1.address);
 
       expect(await ghostProtocol.oracle()).to.equal(user1.address);
     });
@@ -118,7 +146,7 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
 
       await expect(
         ghostProtocol.connect(user1).setOracle(user2.address)
-      ).to.be.revertedWithCustomError(ghostProtocol, "OnlyOwner");
+      ).to.be.revertedWithCustomError(ghostProtocol, "NotOwner");
     });
 
     it("should revert if oracle is zero address", async function () {
@@ -132,10 +160,12 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
 
   describe("setTreasury", function () {
     it("should allow owner to set treasury", async function () {
-      const { ghostProtocol, user1 } = await deployFixtures();
+      const { ghostProtocol, treasury, user1 } = await deployFixtures();
 
       const tx = ghostProtocol.setTreasury(user1.address);
-      await expect(tx).to.emit(ghostProtocol, "TreasuryUpdated");
+      await expect(tx)
+        .to.emit(ghostProtocol, "TreasuryUpdated")
+        .withArgs(treasury.address, user1.address);
 
       expect(await ghostProtocol.treasury()).to.equal(user1.address);
     });
@@ -145,7 +175,7 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
 
       await expect(
         ghostProtocol.connect(user1).setTreasury(user2.address)
-      ).to.be.revertedWithCustomError(ghostProtocol, "OnlyOwner");
+      ).to.be.revertedWithCustomError(ghostProtocol, "NotOwner");
     });
 
     it("should revert if treasury is zero address", async function () {
@@ -162,7 +192,9 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
       const { ghostProtocol } = await deployFixtures();
 
       const tx = ghostProtocol.setPaused(true);
-      await expect(tx).to.emit(ghostProtocol, "PausedStatusChanged");
+      await expect(tx)
+        .to.emit(ghostProtocol, "PauseStateUpdated")
+        .withArgs(true);
 
       expect(await ghostProtocol.paused()).to.equal(true);
     });
@@ -174,7 +206,9 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
       expect(await ghostProtocol.paused()).to.equal(true);
 
       const tx = ghostProtocol.setPaused(false);
-      await expect(tx).to.emit(ghostProtocol, "PausedStatusChanged");
+      await expect(tx)
+        .to.emit(ghostProtocol, "PauseStateUpdated")
+        .withArgs(false);
 
       expect(await ghostProtocol.paused()).to.equal(false);
     });
@@ -184,7 +218,7 @@ describe("GhostProtocol: Constructor & Admin Controls", function () {
 
       await expect(
         ghostProtocol.connect(user1).setPaused(true)
-      ).to.be.revertedWithCustomError(ghostProtocol, "OnlyOwner");
+      ).to.be.revertedWithCustomError(ghostProtocol, "NotOwner");
     });
   });
 });

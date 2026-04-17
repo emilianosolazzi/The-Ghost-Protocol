@@ -1,325 +1,291 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { deployFixtures, TEST_CONSTANTS, generateProofHash } from "./fixtures/common";
+import {
+  deployFixtures,
+  TEST_CONSTANTS,
+  generateProofHash,
+} from "./fixtures/common";
 
 describe("GhostProtocol: Unlock Mechanics", function () {
+  const RECEIPT_FEE = TEST_CONSTANTS.RECEIPT_FEE;
+
+  async function submitEvidenceHelper(
+    ghostProtocol: any,
+    signer: any,
+    seed: number,
+    severity: number = 50
+  ) {
+    const proofHash = generateProofHash(seed);
+    await ghostProtocol
+      .connect(signer)
+      .submitEvidence(proofHash, severity, "unlock test desc", "crypto", "", false, {
+        value: RECEIPT_FEE,
+      });
+    return proofHash;
+  }
+
   describe("unlockStoryByBurn", function () {
-    it("should unlock story by burning tokens", async function () {
-      const { ghostProtocol, ghostedToken, user1, user2 } = await deployFixtures();
+    it("should unlock by burning tokens", async function () {
+      const { ghostProtocol, ghostedToken, user1, user2 } =
+        await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 100);
 
-      const proofHash = generateProofHash(201);
-
-      // User1 submits evidence
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      // User2 unlocks by burning
       const unlockInfo = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      const burnAmount = unlockInfo.currentUnlockPriceInTokens / 2n;
+      const unlockPrice = unlockInfo.unlockPriceTokens;
+
+      const submitterBalBefore = await ghostedToken.balanceOf(user1.address);
 
       const tx = ghostProtocol.connect(user2).unlockStoryByBurn(proofHash);
+      await expect(tx)
+        .to.emit(ghostProtocol, "StoryUnlocked")
+        .withArgs(proofHash, user2.address, unlockPrice, "BURN");
 
-      await expect(tx).to.emit(ghostProtocol, "StoryUnlockedBurn");
-
-      // Verify user can access story
-      const canAccess = await ghostProtocol.canUserAccessStory(proofHash, user2.address);
-      expect(canAccess).to.equal(true);
+      // Submitter gets half, other half is burned
+      const submitterBalAfter = await ghostedToken.balanceOf(user1.address);
+      const submitterShare = unlockPrice - unlockPrice / 2n;
+      expect(submitterBalAfter - submitterBalBefore).to.equal(submitterShare);
     });
 
-    it("should increment unlock count and increase price", async function () {
+    it("should mark user as having unlocked", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 101);
+
+      expect(
+        await ghostProtocol.hasUserUnlockedStory(proofHash, user2.address)
+      ).to.equal(false);
+
+      await ghostProtocol.connect(user2).unlockStoryByBurn(proofHash);
+
+      expect(
+        await ghostProtocol.hasUserUnlockedStory(proofHash, user2.address)
+      ).to.equal(true);
+    });
+
+    it("should escalate unlock price after each unlock", async function () {
       const { ghostProtocol, user1, user2, user3 } = await deployFixtures();
-
-      const proofHash = generateProofHash(202);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 102);
 
       const infoBefore = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      expect(infoBefore.timesUnlocked).to.equal(0n);
-      const priceBefore = infoBefore.currentUnlockPriceInTokens;
-
-      // First unlock
-      await ghostProtocol.connect(user2).unlockStoryByBurn(proofHash);
-
-      const infoAfter1 = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      expect(infoAfter1.timesUnlocked).to.equal(1n);
-      expect(infoAfter1.currentUnlockPriceInTokens).to.be.greaterThan(priceBefore);
-
-      const price1 = infoAfter1.currentUnlockPriceInTokens;
-
-      // Second unlock
-      await ghostProtocol.connect(user3).unlockStoryByBurn(proofHash);
-
-      const infoAfter2 = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      expect(infoAfter2.timesUnlocked).to.equal(2n);
-      expect(infoAfter2.currentUnlockPriceInTokens).to.be.greaterThan(price1);
-    });
-
-    it("should reject if story already unlocked by user", async function () {
-      const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(203);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
+      expect(infoBefore.unlockPriceTokens).to.equal(
+        TEST_CONSTANTS.BASE_UNLOCK_PRICE
       );
 
-      // First unlock succeeds
       await ghostProtocol.connect(user2).unlockStoryByBurn(proofHash);
 
-      // Second unlock by same user fails
-      await expect(
-        ghostProtocol.connect(user2).unlockStoryByBurn(proofHash)
-      ).to.be.revertedWithCustomError(ghostProtocol, "StoryAlreadyUnlockedByUser");
-    });
-
-    it("should reject if story is public", async function () {
-      const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(204);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
+      const infoAfter = await ghostProtocol.getStoryUnlockInfo(proofHash);
+      expect(infoAfter.unlockPriceTokens).to.be.gt(
+        TEST_CONSTANTS.BASE_UNLOCK_PRICE
       );
-
-      // Make story public
-      await ghostProtocol.connect(user1).makeStoryPublic(proofHash);
-
-      // Cannot unlock public story
-      await expect(
-        ghostProtocol.connect(user2).unlockStoryByBurn(proofHash)
-      ).to.be.revertedWithCustomError(ghostProtocol, "StoryAlreadyPublic");
+      expect(infoAfter.timesUnlocked).to.equal(1n);
     });
 
-    it("should reject if evidence does not exist", async function () {
+    it("should revert with AlreadyUnlocked on double unlock", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 103);
+
+      await ghostProtocol.connect(user2).unlockStoryByBurn(proofHash);
+
+      await expect(
+        ghostProtocol.connect(user2).unlockStoryByBurn(proofHash)
+      ).to.be.revertedWithCustomError(ghostProtocol, "AlreadyUnlocked");
+    });
+
+    it("should revert with StoryDoesNotExist for unknown proof", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
 
       await expect(
-        ghostProtocol.connect(user1).unlockStoryByBurn(generateProofHash(999))
-      ).to.be.revertedWithCustomError(ghostProtocol, "EvidenceNotFound");
+        ghostProtocol
+          .connect(user1)
+          .unlockStoryByBurn(generateProofHash(999))
+      ).to.be.revertedWithCustomError(ghostProtocol, "StoryDoesNotExist");
     });
 
-    it("should revert when paused", async function () {
+    it("should revert with StoryIsPublic if already public", async function () {
       const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 104);
 
-      const proofHash = generateProofHash(205);
+      await ghostProtocol.connect(user1).makeStoryPublic(proofHash);
 
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      await expect(
+        ghostProtocol.connect(user2).unlockStoryByBurn(proofHash)
+      ).to.be.revertedWithCustomError(ghostProtocol, "StoryIsPublic");
+    });
+
+    it("should revert with ContractPaused when paused", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 105);
 
       await ghostProtocol.setPaused(true);
 
       await expect(
         ghostProtocol.connect(user2).unlockStoryByBurn(proofHash)
-      ).to.be.revertedWithCustomError(ghostProtocol, "ProtocolPaused");
-    });
-  });
-
-  describe("unlockStoryByCredibility", function () {
-    it("should unlock story if user has enough credibility", async function () {
-      const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(301);
-
-      // User1 submits evidence
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      // Transfer credibility to user2 (requires multiple truth assertions)
-      // For now, assume user2 has credibility >= threshold
-      // This would need a separate truth assertion setup to properly test
-
-      // Credential unlock should check credibility requirement
-      // This test will depend on truth assertion flow being in place
-    });
-
-    it("should reject if insufficient credibility", async function () {
-      const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(302);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      // User2 has no credibility, should fail
-      await expect(
-        ghostProtocol.connect(user2).unlockStoryByCredibility(proofHash)
-      ).to.be.revertedWithCustomError(ghostProtocol, "InsufficientCredibility");
+      ).to.be.revertedWithCustomError(ghostProtocol, "ContractPaused");
     });
   });
 
   describe("unlockStoryWithETH", function () {
-    it("should unlock story by sending ETH", async function () {
+    it("should unlock with ETH payment", async function () {
       const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 200);
 
-      const proofHash = generateProofHash(401);
+      const ethPrice = await ghostProtocol.previewUnlockPriceInEth(proofHash);
+      expect(ethPrice).to.be.gt(0n);
 
-      // User1 submits evidence
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      // User2 gets unlock price
       const unlockInfo = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      const unlockPriceEth = unlockInfo.previewUnlockPriceInEth;
 
-      const tx = ghostProtocol.connect(user2).unlockStoryWithETH(proofHash, {
-        value: unlockPriceEth,
-      });
+      const tx = ghostProtocol
+        .connect(user2)
+        .unlockStoryWithETH(proofHash, { value: ethPrice });
 
-      await expect(tx).to.emit(ghostProtocol, "StoryUnlockedETH");
-
-      // Verify user can access story
-      const canAccess = await ghostProtocol.canUserAccessStory(proofHash, user2.address);
-      expect(canAccess).to.equal(true);
+      await expect(tx)
+        .to.emit(ghostProtocol, "StoryUnlocked")
+        .withArgs(
+          proofHash,
+          user2.address,
+          unlockInfo.unlockPriceTokens,
+          "ETH"
+        );
     });
 
-    it("should refund overpayment for ETH unlock", async function () {
+    it("should pay submitter the ETH", async function () {
       const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 201);
 
-      const proofHash = generateProofHash(402);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
+      const ethPrice = await ghostProtocol.previewUnlockPriceInEth(proofHash);
+      const submitterBalBefore = await ethers.provider.getBalance(
+        user1.address
       );
 
-      const unlockInfo = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      const overpayment = unlockInfo.previewUnlockPriceInEth + ethers.parseEther("1");
+      await ghostProtocol
+        .connect(user2)
+        .unlockStoryWithETH(proofHash, { value: ethPrice });
 
-      const initialBalance = await ethers.provider.getBalance(user2.address);
+      const submitterBalAfter = await ethers.provider.getBalance(
+        user1.address
+      );
+      expect(submitterBalAfter - submitterBalBefore).to.equal(ethPrice);
+    });
 
-      const tx = await ghostProtocol.connect(user2).unlockStoryWithETH(proofHash, {
-        value: overpayment,
-      });
+    it("should refund ETH overpayment", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 202);
 
+      const ethPrice = await ghostProtocol.previewUnlockPriceInEth(proofHash);
+      const overpay = ethPrice * 2n;
+
+      const balBefore = await ethers.provider.getBalance(user2.address);
+
+      const tx = await ghostProtocol
+        .connect(user2)
+        .unlockStoryWithETH(proofHash, { value: overpay });
       const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
-      const finalBalance = await ethers.provider.getBalance(user2.address);
+      const gasCost = BigInt(receipt!.gasUsed) * BigInt(receipt!.gasPrice);
 
-      // Fee should be exact, not the overpayment
-      expect(initialBalance - finalBalance).to.be.closeTo(
-        unlockInfo.previewUnlockPriceInEth + gasUsed,
-        ethers.parseEther("0.001") // tolerance for rounding
-      );
+      const balAfter = await ethers.provider.getBalance(user2.address);
+      const netSpent = balBefore - balAfter - gasCost;
+      expect(netSpent).to.equal(ethPrice);
     });
 
-    it("should reject if insufficient ETH", async function () {
+    it("should revert with InsufficientEth on low payment", async function () {
       const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(403);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      const unlockInfo = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      const insufficientAmount = unlockInfo.previewUnlockPriceInEth / 2n;
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 203);
 
       await expect(
-        ghostProtocol.connect(user2).unlockStoryWithETH(proofHash, {
-          value: insufficientAmount,
-        })
-      ).to.be.revertedWithCustomError(ghostProtocol, "InsufficientPayment");
+        ghostProtocol
+          .connect(user2)
+          .unlockStoryWithETH(proofHash, { value: 1n })
+      ).to.be.revertedWithCustomError(ghostProtocol, "InsufficientEth");
+    });
+
+    it("should revert with AlreadyUnlocked on double ETH unlock", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 204);
+
+      const ethPrice = await ghostProtocol.previewUnlockPriceInEth(proofHash);
+      await ghostProtocol
+        .connect(user2)
+        .unlockStoryWithETH(proofHash, { value: ethPrice });
+
+      await expect(
+        ghostProtocol
+          .connect(user2)
+          .unlockStoryWithETH(proofHash, { value: ethPrice * 2n })
+      ).to.be.revertedWithCustomError(ghostProtocol, "AlreadyUnlocked");
+    });
+  });
+
+  describe("unlockStoryByCredibility", function () {
+    it("should unlock when user has sufficient credibility", async function () {
+      const { ghostProtocol, ghostedToken, user1, user2 } =
+        await deployFixtures();
+      const proofHash = await submitEvidenceHelper(
+        ghostProtocol,
+        user1,
+        300,
+        10
+      );
+
+      // Seed credibility on the token (owner-only function)
+      await ghostedToken.seedCredibilityScore(
+        user2.address,
+        ethers.parseEther("2000")
+      );
+
+      const tx = ghostProtocol
+        .connect(user2)
+        .unlockStoryByCredibility(proofHash);
+
+      await expect(tx)
+        .to.emit(ghostProtocol, "StoryUnlocked")
+        .withArgs(proofHash, user2.address, 0, "CREDIBILITY");
+    });
+
+    it("should revert with InsufficientCredibility when too low", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(
+        ghostProtocol,
+        user1,
+        301,
+        10
+      );
+
+      // user2 has no credibility
+      await expect(
+        ghostProtocol.connect(user2).unlockStoryByCredibility(proofHash)
+      ).to.be.revertedWithCustomError(
+        ghostProtocol,
+        "InsufficientCredibility"
+      );
     });
   });
 
   describe("makeStoryPublic", function () {
     it("should allow submitter to make story public", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
-
-      const proofHash = generateProofHash(501);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 400);
 
       const tx = ghostProtocol.connect(user1).makeStoryPublic(proofHash);
 
-      await expect(tx).to.emit(ghostProtocol, "StoryMadePublic");
+      await expect(tx)
+        .to.emit(ghostProtocol, "StoryMadePublic")
+        .withArgs(proofHash, user1.address);
 
-      const evidence = await ghostProtocol.getEvidence(proofHash);
-      expect(evidence.isPublic).to.equal(true);
+      const info = await ghostProtocol.getStoryUnlockInfo(proofHash);
+      expect(info.isPublic).to.equal(true);
     });
 
-    it("should reject if not submitter", async function () {
+    it("should revert with OnlySubmitter for non-submitter", async function () {
       const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(502);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 401);
 
       await expect(
         ghostProtocol.connect(user2).makeStoryPublic(proofHash)
       ).to.be.revertedWithCustomError(ghostProtocol, "OnlySubmitter");
     });
 
-    it("should reject if made public twice", async function () {
+    it("should revert with StoryAlreadyPublic on double public", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
-
-      const proofHash = generateProofHash(503);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 402);
 
       await ghostProtocol.connect(user1).makeStoryPublic(proofHash);
 
@@ -327,65 +293,46 @@ describe("GhostProtocol: Unlock Mechanics", function () {
         ghostProtocol.connect(user1).makeStoryPublic(proofHash)
       ).to.be.revertedWithCustomError(ghostProtocol, "StoryAlreadyPublic");
     });
+
+    it("should revert with StoryDoesNotExist for unknown proof", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+
+      await expect(
+        ghostProtocol.connect(user1).makeStoryPublic(generateProofHash(999))
+      ).to.be.revertedWithCustomError(ghostProtocol, "StoryDoesNotExist");
+    });
   });
 
   describe("canUserAccessStory", function () {
-    it("should return true if story is public", async function () {
+    it("should return false for non-unlocked, non-public story", async function () {
       const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 500);
 
-      const proofHash = generateProofHash(601);
+      expect(
+        await ghostProtocol.canUserAccessStory(proofHash, user2.address)
+      ).to.equal(false);
+    });
 
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+    it("should return true after unlocking", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 501);
+
+      await ghostProtocol.connect(user2).unlockStoryByBurn(proofHash);
+
+      expect(
+        await ghostProtocol.canUserAccessStory(proofHash, user2.address)
+      ).to.equal(true);
+    });
+
+    it("should return true for public story", async function () {
+      const { ghostProtocol, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(ghostProtocol, user1, 502);
 
       await ghostProtocol.connect(user1).makeStoryPublic(proofHash);
 
-      const canAccess = await ghostProtocol.canUserAccessStory(proofHash, user2.address);
-      expect(canAccess).to.equal(true);
-    });
-
-    it("should return true if user unlocked story", async function () {
-      const { ghostProtocol, user1, user2 } = await deployFixtures();
-
-      const proofHash = generateProofHash(602);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      const unlockInfo = await ghostProtocol.getStoryUnlockInfo(proofHash);
-      await ghostProtocol.connect(user2).unlockStoryWithETH(proofHash, {
-        value: unlockInfo.previewUnlockPriceInEth,
-      });
-
-      const canAccess = await ghostProtocol.canUserAccessStory(proofHash, user2.address);
-      expect(canAccess).to.equal(true);
-    });
-
-    it("should return false if user has no access", async function () {
-      const { ghostProtocol, user1, user2, user3 } = await deployFixtures();
-
-      const proofHash = generateProofHash(603);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      const canAccess = await ghostProtocol.canUserAccessStory(proofHash, user3.address);
-      expect(canAccess).to.equal(false);
+      expect(
+        await ghostProtocol.canUserAccessStory(proofHash, user2.address)
+      ).to.equal(true);
     });
   });
 });

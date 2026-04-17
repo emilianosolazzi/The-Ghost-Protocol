@@ -37,6 +37,9 @@ export async function deployFixtures(): Promise<TestFixtures> {
   await ghostedToken.setProtocol(await ghostProtocol.getAddress());
   await ghostProtocol.connect(oracle).setUnlockPriceQuote(1_000_000_000_000n);
 
+  // Fund protocol contract with tokens for evidence rewards and truth payouts
+  await ghostedToken.transfer(await ghostProtocol.getAddress(), ethers.parseEther("5000000"));
+
   // Transfer some tokens to users for testing
   const tokensPerUser = ethers.parseEther("10000");
   await ghostedToken.transfer(user1.address, tokensPerUser);

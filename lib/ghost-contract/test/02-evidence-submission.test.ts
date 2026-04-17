@@ -1,272 +1,299 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { deployFixtures, TEST_CONSTANTS, generateProofHash } from "./fixtures/common";
+import {
+  deployFixtures,
+  TEST_CONSTANTS,
+  generateProofHash,
+  generateDramaType,
+} from "./fixtures/common";
 
 describe("GhostProtocol: Evidence Submission", function () {
-  describe("submitEvidence - Direct Evidence", function () {
-    it("should submit direct evidence and mint reward", async function () {
-      const { ghostProtocol, ghostedToken, user1, treasury, oracle } =
-        await deployFixtures();
+  const RECEIPT_FEE = TEST_CONSTANTS.RECEIPT_FEE;
 
+  describe("Direct Evidence", function () {
+    it("should submit direct evidence successfully", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
       const proofHash = generateProofHash(1);
-      const severity = 50n;
-      const expectedReward = (severity * 50n); // 50 GHOSTED per severity point
+      const severity = 10;
+      const dramaType = generateDramaType(0);
 
-      const tx = ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        severity,
-        false, // not proxy
-        "test drama type",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      const tx = ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, severity, "test description", dramaType, "", false, {
+          value: RECEIPT_FEE,
+        });
+
+      const expectedReward = BigInt(severity) * 50n * 10n ** 18n;
 
       await expect(tx)
         .to.emit(ghostProtocol, "EvidenceSubmitted")
-        .withArgs(user1.address, proofHash, severity, false, expectedReward);
-
-      // Check token was minted to submitter
-      const userBalance = await ghostedToken.balanceOf(user1.address);
-      expect(userBalance).to.be.greaterThan(ethers.parseEther("10000")); // received reward
-
-      // Check fee was split
-      const stats = await ghostProtocol.getProtocolStats();
-      expect(stats.totalDirectEvidenceRewards).to.equal(
-        ethers.parseEther("2500") // severity 50 * 50 = 2500
-      );
+        .withArgs(proofHash, user1.address, severity, false, expectedReward, dramaType);
     });
 
-    it("should submit proxy evidence without token mint", async function () {
-      const { ghostProtocol, ghostedToken, user1, treasury } =
-        await deployFixtures();
-
+    it("should store evidence correctly", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
       const proofHash = generateProofHash(2);
-      const severity = 30n;
-      const initialBalance = await ghostedToken.balanceOf(user1.address);
+      const severity = 20;
+      const dramaType = generateDramaType(1);
 
-      ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        severity,
-        true, // is proxy
-        "test drama type",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, severity, "desc", dramaType, "", false, {
+          value: RECEIPT_FEE,
+        });
 
-      // Proxy should not mint reward
-      const finalBalance = await ghostedToken.balanceOf(user1.address);
-      expect(finalBalance).to.equal(initialBalance);
+      const evidence = await ghostProtocol.getEvidence(proofHash);
+      expect(evidence.timestamp).to.be.gt(0n);
+      expect(evidence.weight).to.equal(severity);
+      expect(evidence.isProxy).to.equal(false);
+      expect(evidence.submitter).to.equal(user1.address);
+      expect(evidence.dramaType).to.equal(dramaType);
+
+      const expectedReward = BigInt(severity) * 50n * 10n ** 18n;
+      expect(evidence.ghostedRewarded).to.equal(expectedReward);
     });
 
-    it("should split fee correctly between treasury and protocol", async function () {
-      const { ghostProtocol, treasury, user1 } = await deployFixtures();
+    it("should reward GHOSTED tokens based on severity", async function () {
+      const { ghostProtocol, ghostedToken, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(3);
+      const severity = 50;
 
-      const initialTreasuryBalance = await ethers.provider.getBalance(
+      const balanceBefore = await ghostedToken.balanceOf(user1.address);
+
+      await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, severity, "desc", "crypto", "", false, {
+          value: RECEIPT_FEE,
+        });
+
+      const balanceAfter = await ghostedToken.balanceOf(user1.address);
+      const expectedReward = BigInt(severity) * 50n * 10n ** 18n;
+      expect(balanceAfter - balanceBefore).to.equal(expectedReward);
+    });
+
+    it("should cap reward at MAX_GHOSTED_PER_SUBMISSION", async function () {
+      const { ghostProtocol, ghostedToken, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(4);
+      const severity = 100; // 100 * 50 * 1e18 = 5000e18 = MAX
+
+      const balanceBefore = await ghostedToken.balanceOf(user1.address);
+
+      await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, severity, "desc", "crypto", "", false, {
+          value: RECEIPT_FEE,
+        });
+
+      const balanceAfter = await ghostedToken.balanceOf(user1.address);
+      expect(balanceAfter - balanceBefore).to.equal(
+        TEST_CONSTANTS.MAX_GHOSTED_PER_SUBMISSION
+      );
+    });
+
+    it("should update protocol stats after submission", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(5);
+      const severity = 10;
+
+      await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, severity, "desc", "crypto", "", false, {
+          value: RECEIPT_FEE,
+        });
+
+      const stats = await ghostProtocol.getProtocolStats();
+      expect(stats.totalEvidence).to.equal(1n);
+      expect(stats.directEvidence).to.equal(1n);
+      expect(stats.proxyEvidence).to.equal(0n);
+
+      const expectedReward = BigInt(severity) * 50n * 10n ** 18n;
+      expect(stats.rewardedGhosted).to.equal(expectedReward);
+    });
+  });
+
+  describe("Proxy Evidence", function () {
+    it("should submit proxy evidence (no token reward)", async function () {
+      const { ghostProtocol, ghostedToken, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(10);
+      const severity = 30;
+      const dramaType = generateDramaType(2);
+
+      const balanceBefore = await ghostedToken.balanceOf(user1.address);
+
+      const tx = ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, severity, "proxy desc", dramaType, "", true, {
+          value: RECEIPT_FEE,
+        });
+
+      await expect(tx)
+        .to.emit(ghostProtocol, "EvidenceSubmitted")
+        .withArgs(proofHash, user1.address, severity, true, 0, dramaType);
+
+      const balanceAfter = await ghostedToken.balanceOf(user1.address);
+      expect(balanceAfter).to.equal(balanceBefore);
+
+      const stats = await ghostProtocol.getProtocolStats();
+      expect(stats.proxyEvidence).to.equal(1n);
+    });
+  });
+
+  describe("Fee Split", function () {
+    it("should split receipt fee between treasury and protocol", async function () {
+      const { ghostProtocol, user1, treasury } = await deployFixtures();
+      const proofHash = generateProofHash(20);
+
+      const treasuryBalBefore = await ethers.provider.getBalance(
         treasury.address
       );
 
-      ghostProtocol.connect(user1).submitEvidence(
-        generateProofHash(3),
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
+      await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, 10, "desc", "crypto", "", false, {
+          value: RECEIPT_FEE,
+        });
 
-      const finalTreasuryBalance = await ethers.provider.getBalance(
+      const treasuryBalAfter = await ethers.provider.getBalance(
         treasury.address
       );
 
-      // Treasury gets 30%
-      const expectedTreasuryShare =
-        (TEST_CONSTANTS.RECEIPT_FEE * TEST_CONSTANTS.TREASURY_SPLIT_BPS) /
+      const expectedTreasuryCut =
+        (RECEIPT_FEE * TEST_CONSTANTS.TREASURY_SPLIT_BPS) /
         TEST_CONSTANTS.BPS_DENOMINATOR;
 
-      expect(finalTreasuryBalance).to.be.greaterThanOrEqual(
-        initialTreasuryBalance + (expectedTreasuryShare * 99n) / 100n // allow 1% variance for rounding
+      expect(treasuryBalAfter - treasuryBalBefore).to.equal(
+        expectedTreasuryCut
       );
     });
 
-    it("should reject severity < 1", async function () {
+    it("should emit GhostingReceiptSubmitted event", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(21);
 
-      await expect(
-        ghostProtocol.connect(user1).submitEvidence(
-          generateProofHash(4),
-          0, // invalid
-          false,
-          "test",
-          { value: TEST_CONSTANTS.RECEIPT_FEE }
-        )
-      ).to.be.revertedWithCustomError(ghostProtocol, "InvalidSeverity");
+      const expectedTreasuryCut =
+        (RECEIPT_FEE * TEST_CONSTANTS.TREASURY_SPLIT_BPS) /
+        TEST_CONSTANTS.BPS_DENOMINATOR;
+      const expectedProtocolCut = RECEIPT_FEE - expectedTreasuryCut;
+
+      const tx = ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, 10, "desc", "crypto", "", false, {
+          value: RECEIPT_FEE,
+        });
+
+      await expect(tx)
+        .to.emit(ghostProtocol, "GhostingReceiptSubmitted")
+        .withArgs(
+          user1.address,
+          proofHash,
+          RECEIPT_FEE,
+          expectedTreasuryCut,
+          expectedProtocolCut
+        );
     });
+  });
 
-    it("should reject severity > 100", async function () {
+  describe("Validation & Errors", function () {
+    it("should revert with InvalidProofHash on zero hash", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
 
       await expect(
-        ghostProtocol.connect(user1).submitEvidence(
-          generateProofHash(5),
-          101n, // invalid
-          false,
-          "test",
-          { value: TEST_CONSTANTS.RECEIPT_FEE }
-        )
-      ).to.be.revertedWithCustomError(ghostProtocol, "InvalidSeverity");
-    });
-
-    it("should reject proofHash zero", async function () {
-      const { ghostProtocol, user1 } = await deployFixtures();
-
-      await expect(
-        ghostProtocol.connect(user1).submitEvidence(
-          ethers.ZeroHash,
-          50n,
-          false,
-          "test",
-          { value: TEST_CONSTANTS.RECEIPT_FEE }
-        )
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(ethers.ZeroHash, 10, "desc", "crypto", "", false, {
+            value: RECEIPT_FEE,
+          })
       ).to.be.revertedWithCustomError(ghostProtocol, "InvalidProofHash");
     });
 
-    it("should reject duplicate proofHash", async function () {
+    it("should revert with InvalidSeverity on severity=0", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
 
-      const proofHash = generateProofHash(6);
-
-      // First submission succeeds
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      // Second submission with same proofHash fails
       await expect(
-        ghostProtocol.connect(user1).submitEvidence(
-          proofHash,
-          40n,
-          false,
-          "test",
-          { value: TEST_CONSTANTS.RECEIPT_FEE }
-        )
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(generateProofHash(30), 0, "desc", "crypto", "", false, {
+            value: RECEIPT_FEE,
+          })
+      ).to.be.revertedWithCustomError(ghostProtocol, "InvalidSeverity");
+    });
+
+    it("should revert with InvalidSeverity on severity>100", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+
+      await expect(
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(generateProofHash(31), 101, "desc", "crypto", "", false, {
+            value: RECEIPT_FEE,
+          })
+      ).to.be.revertedWithCustomError(ghostProtocol, "InvalidSeverity");
+    });
+
+    it("should revert with EvidenceAlreadyExists on duplicate", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(32);
+
+      await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, 10, "desc", "crypto", "", false, {
+          value: RECEIPT_FEE,
+        });
+
+      await expect(
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(proofHash, 10, "desc", "crypto", "", false, {
+            value: RECEIPT_FEE,
+          })
       ).to.be.revertedWithCustomError(ghostProtocol, "EvidenceAlreadyExists");
     });
 
-    it("should reject insufficient ETH fee", async function () {
+    it("should revert with InsufficientEth on low fee", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
 
-      const insufficientFee = ethers.parseEther("0.001");
+      await expect(
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(generateProofHash(33), 10, "desc", "crypto", "", false, {
+            value: ethers.parseEther("0.001"),
+          })
+      ).to.be.revertedWithCustomError(ghostProtocol, "InsufficientEth");
+    });
+
+    it("should revert with ContractPaused when paused", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+      await ghostProtocol.setPaused(true);
 
       await expect(
-        ghostProtocol.connect(user1).submitEvidence(
-          generateProofHash(7),
-          50n,
-          false,
-          "test",
-          { value: insufficientFee }
-        )
-      ).to.be.revertedWithCustomError(ghostProtocol, "InsufficientFeeAmount");
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(generateProofHash(34), 10, "desc", "crypto", "", false, {
+            value: RECEIPT_FEE,
+          })
+      ).to.be.revertedWithCustomError(ghostProtocol, "ContractPaused");
     });
 
     it("should refund overpayment", async function () {
       const { ghostProtocol, user1 } = await deployFixtures();
+      const proofHash = generateProofHash(35);
+      const overpay = ethers.parseEther("1.0");
 
-      const overpayment = TEST_CONSTANTS.RECEIPT_FEE + ethers.parseEther("1");
-      const initialBalance = await ethers.provider.getBalance(user1.address);
+      const balBefore = await ethers.provider.getBalance(user1.address);
 
-      const tx = await ghostProtocol.connect(user1).submitEvidence(
-        generateProofHash(8),
-        50n,
-        false,
-        "test",
-        { value: overpayment }
-      );
-
+      const tx = await ghostProtocol
+        .connect(user1)
+        .submitEvidence(proofHash, 10, "desc", "crypto", "", false, {
+          value: overpay,
+        });
       const receipt = await tx.wait();
-      const gasUsed = BigInt(receipt!.gasUsed) * BigInt(receipt!.gasPrice);
-      const finalBalance = await ethers.provider.getBalance(user1.address);
+      const gasCost = BigInt(receipt!.gasUsed) * BigInt(receipt!.gasPrice);
 
-      // User should get back close to the overpayment amount minus gas
-      expect(initialBalance - finalBalance).to.be.lessThan(
-        TEST_CONSTANTS.RECEIPT_FEE + gasUsed + ethers.parseEther("0.01") // some tolerance
-      );
-    });
+      const balAfter = await ethers.provider.getBalance(user1.address);
 
-    it("should increment submission counter", async function () {
-      const { ghostProtocol, user1 } = await deployFixtures();
-
-      const statsBefore = await ghostProtocol.getProtocolStats();
-      expect(statsBefore.totalEvidenceSubmissions).to.equal(0n);
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        generateProofHash(9),
-        50n,
-        false,
-        "test",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      const statsAfter = await ghostProtocol.getProtocolStats();
-      expect(statsAfter.totalEvidenceSubmissions).to.equal(1n);
-    });
-
-    it("should revert when paused", async function () {
-      const { ghostProtocol, user1 } = await deployFixtures();
-
-      await ghostProtocol.setPaused(true);
-
-      await expect(
-        ghostProtocol.connect(user1).submitEvidence(
-          generateProofHash(10),
-          50n,
-          false,
-          "test",
-          { value: TEST_CONSTANTS.RECEIPT_FEE }
-        )
-      ).to.be.revertedWithCustomError(ghostProtocol, "ProtocolPaused");
-    });
-
-    it("should store evidence with correct structure", async function () {
-      const { ghostProtocol, user1 } = await deployFixtures();
-
-      const proofHash = generateProofHash(11);
-      const severity = 75n;
-
-      await ghostProtocol.connect(user1).submitEvidence(
-        proofHash,
-        severity,
-        false,
-        "test drama",
-        { value: TEST_CONSTANTS.RECEIPT_FEE }
-      );
-
-      const evidence = await ghostProtocol.getEvidence(proofHash);
-      expect(evidence.submitted).to.equal(true);
-      expect(evidence.severity).to.equal(severity);
-      expect(evidence.submitter).to.equal(user1.address);
-      expect(evidence.isProxy).to.equal(false);
-    });
-  });
-
-  describe("submitEvidence - Multiple Submissions", function () {
-    it("should handle multiple submissions from different users", async function () {
-      const { ghostProtocol, user1, user2, user3 } = await deployFixtures();
-
-      for (let i = 0; i < 3; i++) {
-        const users = [user1, user2, user3];
-        const user = users[i];
-        await ghostProtocol.connect(user).submitEvidence(
-          generateProofHash(100 + i),
-          (50 + i) as any,
-          false,
-          "test",
-          { value: TEST_CONSTANTS.RECEIPT_FEE }
-        );
-      }
-
-      const stats = await ghostProtocol.getProtocolStats();
-      expect(stats.totalEvidenceSubmissions).to.equal(3n);
+      // User should only be charged RECEIPT_FEE + gas, rest refunded
+      const netSpent = balBefore - balAfter - gasCost;
+      expect(netSpent).to.equal(RECEIPT_FEE);
     });
   });
 });

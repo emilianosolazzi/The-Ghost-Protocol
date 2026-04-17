@@ -21,6 +21,7 @@ contract GhostProtocol is ReentrancyGuard {
         bool isProxy;
         bytes32 descriptionHash;
         string dramaType;
+        string contentCid;
         address submitter;
         uint256 ghostedRewarded;
     }
@@ -247,6 +248,7 @@ contract GhostProtocol is ReentrancyGuard {
         uint256 severity,
         string calldata description,
         string calldata dramaType,
+        string calldata contentCid,
         bool isProxy
     ) external payable whenNotPaused nonReentrant {
         if (proofHash == bytes32(0)) revert InvalidProofHash();
@@ -283,6 +285,7 @@ contract GhostProtocol is ReentrancyGuard {
             isProxy: isProxy,
             descriptionHash: keccak256(bytes(description)),
             dramaType: dramaType,
+            contentCid: contentCid,
             submitter: msg.sender,
             ghostedRewarded: ghostedReward
         });
@@ -496,6 +499,7 @@ contract GhostProtocol is ReentrancyGuard {
             bool isProxy,
             bytes32 descriptionHash,
             string memory dramaType,
+            string memory contentCid,
             address submitter,
             uint256 ghostedRewarded
         )
@@ -507,6 +511,7 @@ contract GhostProtocol is ReentrancyGuard {
             evidence.isProxy,
             evidence.descriptionHash,
             evidence.dramaType,
+            evidence.contentCid,
             evidence.submitter,
             evidence.ghostedRewarded
         );

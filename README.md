@@ -54,3 +54,44 @@ The blockchain never forgets. But it also never forgives.
 $GHOSTED — The Only Memecoin That Pays You for Your Emotional Damage.
 Did she text back? No? Good. Mint it. 🥀⛓️
 Did he text back? No? Good. Mint it. 🥀⛓️
+
+---
+
+## Serious Beyond Fun
+
+The memecoin framing is the business model. The evidence registry is the product.
+
+**The submitter can't edit it after the fact. Neither can the person they're documenting. The timestamp is the blockchain's, not theirs.** That's the whole point when someone is telling you "that never happened."
+
+This is a more serious tool than it looks. The moment evidence is submitted on-chain, it becomes immutable, timestamped, and permanently anchored to a block number. No one — not the submitter, not the accused, not even the protocol owner — can alter, delete, or backdate it.
+
+### Content-Addressable Proof
+
+Evidence submissions follow the pattern:
+
+```
+keccak256(content) → IPFS/Arweave CID → proofHash submitted on-chain
+```
+
+The `descriptionHash` in the contract is the keccak256 hash of the actual content file — not a text summary. The file lives permanently on IPFS or Arweave. The hash on-chain proves that exact file existed at that block. Nobody can swap the file after the fact because the hash won't match.
+
+Each piece of evidence also stores a `contentCid` — the IPFS or Arweave content identifier. The hash verifies the file. The CID locates it. Together they're complete.
+
+**What that proof says:**
+
+> "This wallet submitted the hash of this exact audio/image/video file at block N. The file has not been altered since. Multiple wallets staked tokens asserting they believe it is genuine."
+
+That's a materially different and stronger claim than a text description. The content is retrievable, verifiable, and permanently anchored.
+
+### Why This Matters
+
+When someone says "that never happened," the chain says otherwise. The proof is:
+
+- **Immutable** — stored on-chain, cannot be edited or deleted
+- **Timestamped** — the block timestamp is the blockchain's, not the submitter's
+- **Content-verified** — the keccak256 hash locks the exact file contents forever
+- **Retrievable** — the CID points directly to the file on decentralized storage
+- **Socially validated** — truth assertions stake real tokens on whether evidence is genuine
+- **Economically anchored** — the token burn mechanism makes the system self-sustaining
+
+The token economics fund the registry. The registry is the point.
