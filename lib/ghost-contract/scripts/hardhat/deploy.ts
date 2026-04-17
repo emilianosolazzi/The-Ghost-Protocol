@@ -33,6 +33,12 @@ async function main() {
   const contractAddress = await ghostProtocol.getAddress();
   console.log(`GhostProtocol deployed to: ${contractAddress}`);
 
+  await ghostedToken.setProtocol(contractAddress);
+  console.log("Configured mock token protocol authority");
+
+  await ghostProtocol.setUnlockPriceQuote(1_000_000_000_000n);
+  console.log("Seeded unlock price quote: 0.000001 ETH per GHOSTED");
+
   console.log("\nFunding GhostProtocol with local test rewards...");
   const rewardFunding = ethers.parseEther("250000");
   await ghostedToken.transfer(contractAddress, rewardFunding);

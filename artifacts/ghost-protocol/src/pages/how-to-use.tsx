@@ -87,16 +87,16 @@ export function HowToUse() {
           />
           <MetricExplainer
             icon={<Lock className="w-5 h-5 text-primary" />}
-            name="DIRECT ASSERTIONS"
+            name="DIRECT RECEIPT INDEX"
             short="The contract's global direct-receipt counter"
             description="The stats field named totalTruthAssertions increments when a direct receipt is submitted. It does not count per-story truth stakes. Those are read separately with getTruthAssertionCount(proofHash)."
             range="If you want truth stakes on a specific receipt, look at the recent evidence cards instead."
           />
           <MetricExplainer
             icon={<Wallet className="w-5 h-5 text-primary" />}
-            name="REVENUE / TREASURY / PROTOCOL POOL"
+            name="REVENUE / TREASURY / RETAINED / BALANCE"
             short={`Where the ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH fee goes`}
-            description={`Every submission pays ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH. The contract forwards 30% to treasury and retains 70% as protocol revenue. The dashboard shows all three aggregate totals directly from storage.`}
+            description={`Every submission pays ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH. The contract forwards 30% to treasury, tracks the retained 70% cumulatively, tracks any later admin withdrawals, and exposes the live ETH balance separately.`}
             range={`Per submission: ${formatEthAmount(treasuryCutEth, 5)} ETH to treasury, ${formatEthAmount(protocolCutEth, 5)} ETH retained by GhostProtocol.`}
           />
           <MetricExplainer
@@ -188,7 +188,7 @@ export function HowToUse() {
           <Step
             number={5}
             title="Describe what happened (optional)"
-            desc={`Add context if you want — something like: Sent "we still on for tonight?" at 6pm. Read at 6:02pm. No response. It goes into the permanent record.`}
+            desc={`Add context if you want — something like: Sent "we still on for tonight?" at 6pm. Read at 6:02pm. No response. The plain text stays in your review archive; the contract stores only its hash.`}
           />
           <Step
             number={6}
@@ -213,8 +213,8 @@ export function HowToUse() {
         <div className="flex flex-col gap-3">
           {[
             { label: "BURN UNLOCK", trigger: "Pay the token unlock price. Half is burned, half is transferred to the submitter.", reward: `${formatTokenAmount(ghostProtocolUiConstants.baseUnlockPrice)} GHOSTED base`, icon: "B" },
-            { label: "CREDIBILITY UNLOCK", trigger: "Requires token credibility above both the global floor and the story-specific severity threshold.", reward: `${formatTokenAmount(ghostProtocolUiConstants.credibilityUnlockThreshold)} floor`, icon: "C" },
-            { label: "ETH UNLOCK", trigger: "Pay the ETH-equivalent unlock price. The ETH goes straight to the submitter.", reward: "dynamic", icon: "E" },
+            { label: "CREDIBILITY UNLOCK", trigger: "Requires effective credibility above both the global floor and the story-specific severity threshold. Effective means token credibility plus protocol-earned credibility.", reward: `${formatTokenAmount(ghostProtocolUiConstants.credibilityUnlockThreshold)} floor`, icon: "C" },
+            { label: "ETH UNLOCK", trigger: "Pay the ETH-equivalent unlock price using the current oracle quote. If the quote is stale, ETH unlocks are unavailable until refreshed.", reward: "quoted", icon: "E" },
             { label: "PUBLIC STORY", trigger: "Only the original submitter can flip a story to public access.", reward: "0 cost", icon: "P" },
           ].map((r) => (
             <div key={r.label} className="flex items-center gap-4 p-4 bg-card border border-white/5 rounded-xl hover:border-white/10 transition-colors">
@@ -228,7 +228,7 @@ export function HowToUse() {
           ))}
         </div>
         <p className="text-muted-foreground text-sm leading-relaxed">
-          The unlock price increases slightly after each paid unlock. The recent evidence cards show the current token unlock price and whether the active wallet can access the story.
+          The unlock price increases by a fixed 50 GHOSTED step after each paid unlock until it reaches the 2,500 GHOSTED cap. The recent evidence cards show the current token unlock price and whether the active wallet can access the story.
         </p>
       </section>
 
@@ -242,7 +242,7 @@ export function HowToUse() {
           </p>
           <p className="text-muted-foreground leading-relaxed">
             Later, the oracle resolves each truth stake. A correct call earns <span className="text-primary font-bold">{formatTokenAmount(ghostProtocolUiConstants.truthWinReward)} GHOSTED</span>
-            and a +100 credibility bump. A wrong call sends half the stake to the story submitter and burns the other half.
+            and a +100 protocol credibility bump inside GhostProtocol. A wrong call sends half the stake to the story submitter and burns the other half.
           </p>
           <div className="grid grid-cols-3 gap-4 pt-2 border-t border-white/5">
             <div>
@@ -268,16 +268,19 @@ export function HowToUse() {
           {[
             { term: "Direct Evidence", def: `A receipt submission with isProxy = false. Earns severity × ${receiptRewardMultiplier.toLocaleString()} $GHOSTED up to the max cap of ${maxGhostedPerSubmission.toLocaleString()}.` },
             { term: "Proxy Evidence", def: "A stored receipt with isProxy = true. It is recorded on-chain but pays no direct reward." },
-            { term: "Direct Assertion Counter", def: "The totalTruthAssertions value returned by getProtocolStats. It increments on direct receipt submission." },
+            { term: "Direct Receipt Index", def: "The totalTruthAssertions value returned by getProtocolStats. It increments on direct receipt submission." },
             { term: "Truth Stake", def: "A separate per-story stake created with assertTruth(proofHash, believesReal)." },
             { term: "Base Unlock Price", def: "The starting story price: 500 $GHOSTED." },
+            { term: "Unlock Price Step", def: "Each paid unlock adds a flat 50 $GHOSTED until the story price reaches the 2,500 $GHOSTED cap." },
             { term: "Credibility Unlock Floor", def: "The minimum token credibility required before a credibility unlock can succeed: 1,000." },
-            { term: "Protocol Revenue", def: `The 70% portion of each ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH submission fee retained by the contract.` },
+            { term: "Protocol Retained Revenue", def: `The lifetime 70% portion of each ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH submission fee tracked as retained by the contract.` },
+            { term: "Protocol Withdrawn", def: "The cumulative ETH later withdrawn from GhostProtocol to treasury by an owner action." },
+            { term: "Protocol Balance", def: "The current ETH balance still sitting in the contract after treasury forwarding and any later withdrawals." },
             { term: "Treasury Distributed", def: `The 30% portion of each ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH submission fee already forwarded to treasury.` },
+            { term: "Effective Credibility", def: "Token credibility plus protocol-earned credibility tracked inside GhostProtocol." },
             { term: "$GHOSTED", def: "The ERC-20 style token used for direct rewards, story unlocks, and truth staking." },
-            { term: "Gaslight Flag", def: "A boolean exposed by getProtocolStats once total evidence reaches 10." },
+            { term: "10-Receipt Milestone", def: "A boolean exposed by getProtocolStats once total evidence reaches 10." },
             { term: "Description Hash", def: "keccak256(description). The contract stores this hash, not the plain text." },
-            { term: "Protocol Pool", def: "Frontend label for totalProtocolRevenue, not a milestone payout bucket." },
             { term: "Story Public", def: "A receipt story the submitter has explicitly opened for everyone." },
             { term: "Access Locked", def: "The story is still private and the current wallet has not unlocked it yet." },
           ].map(({ term, def }) => (

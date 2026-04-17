@@ -1,10 +1,9 @@
 import { ethers } from "hardhat";
 import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
-import type { GhostProtocol, MockERC20 } from "../../artifacts/GhostProtocol";
 
 export interface TestFixtures {
-  ghostProtocol: GhostProtocol;
-  ghostedToken: MockERC20;
+  ghostProtocol: any;
+  ghostedToken: any;
   deployer: SignerWithAddress;
   oracle: SignerWithAddress;
   treasury: SignerWithAddress;
@@ -19,18 +18,24 @@ export async function deployFixtures(): Promise<TestFixtures> {
 
   // Deploy mock token
   const MockToken = await ethers.getContractFactory("MockERC20");
-  const ghostedToken = await MockToken.deploy("GHOSTED", "GHOSTED", ethers.parseEther("10000000"));
+  const ghostedToken: any = await MockToken.deploy(
+    "GHOSTED",
+    "GHOSTED",
+    ethers.parseEther("10000000")
+  );
   await ghostedToken.waitForDeployment();
   const tokenAddress = await ghostedToken.getAddress();
 
   // Deploy GhostProtocol
   const GhostProtocol = await ethers.getContractFactory("GhostProtocol");
-  const ghostProtocol = await GhostProtocol.deploy(
+  const ghostProtocol: any = await GhostProtocol.deploy(
     tokenAddress,
     treasury.address,
     oracle.address
   );
   await ghostProtocol.waitForDeployment();
+  await ghostedToken.setProtocol(await ghostProtocol.getAddress());
+  await ghostProtocol.connect(oracle).setUnlockPriceQuote(1_000_000_000_000n);
 
   // Transfer some tokens to users for testing
   const tokensPerUser = ethers.parseEther("10000");
@@ -59,8 +64,8 @@ export async function deployFixtures(): Promise<TestFixtures> {
     );
 
   return {
-    ghostProtocol: ghostProtocol as any as GhostProtocol,
-    ghostedToken: ghostedToken as any as MockERC20,
+    ghostProtocol,
+    ghostedToken,
     deployer,
     oracle,
     treasury,

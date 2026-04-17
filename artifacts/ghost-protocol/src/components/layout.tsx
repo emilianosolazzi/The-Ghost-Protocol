@@ -37,7 +37,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="min-h-[100dvh] bg-background text-foreground flex flex-col font-mono selection:bg-primary selection:text-white">
       <div className="noise-overlay" />
       
-      <header className="sticky top-0 z-40 w-full border-b border-white/5 bg-background/80 backdrop-blur-md">
+      <header className="sticky top-0 z-40 w-full border-b border-white/10 bg-background/84 backdrop-blur-xl">
         <div className="container mx-auto px-4 min-h-16 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <Link href="/" className="flex items-center gap-2 group">
             <div className="relative">
@@ -50,23 +50,23 @@ export function Layout({ children }: { children: ReactNode }) {
           </Link>
           
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-6">
-            <nav className="flex items-center gap-6 text-sm">
-              <Link href="/dashboard" className={`flex items-center gap-2 transition-colors hover:text-primary ${location === '/dashboard' ? 'text-primary' : 'text-muted-foreground'}`}>
+            <nav className="flex flex-wrap items-center gap-3 text-sm">
+              <Link href="/dashboard" className={`ghost-status-pill transition-colors ${location === '/dashboard' ? 'border-primary/35 bg-primary/12 text-primary' : 'text-muted-foreground hover:border-white/20 hover:text-white'}`}>
                 <Activity className="w-4 h-4" />
-                <span className="hidden sm:inline">DASHBOARD</span>
+                <span>DASHBOARD</span>
               </Link>
-              <Link href="/evidence" className={`flex items-center gap-2 transition-colors hover:text-primary ${location === '/evidence' ? 'text-primary' : 'text-muted-foreground'}`}>
+              <Link href="/evidence" className={`ghost-status-pill transition-colors ${location === '/evidence' ? 'border-primary/35 bg-primary/12 text-primary' : 'text-muted-foreground hover:border-white/20 hover:text-white'}`}>
                 <FileWarning className="w-4 h-4" />
-                <span className="hidden sm:inline">SUBMIT EVIDENCE</span>
+                <span>LOG RECEIPT</span>
               </Link>
-              <Link href="/how-to-use" className={`flex items-center gap-2 transition-colors hover:text-primary ${location === '/how-to-use' ? 'text-primary' : 'text-muted-foreground'}`}>
+              <Link href="/how-to-use" className={`ghost-status-pill transition-colors ${location === '/how-to-use' ? 'border-primary/35 bg-primary/12 text-primary' : 'text-muted-foreground hover:border-white/20 hover:text-white'}`}>
                 <HelpCircle className="w-4 h-4" />
-                <span className="hidden sm:inline">HOW IT WORKS</span>
+                <span>HOW IT WORKS</span>
               </Link>
             </nav>
 
             <div className="flex items-center gap-3 md:justify-end">
-              <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-md border border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-muted-foreground">
+              <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full border border-white/12 bg-white/[0.04] text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                 <span className={`h-2 w-2 rounded-full ${config.isConfigured ? "bg-primary" : "bg-amber-400"}`} />
                 {config.isConfigured ? "Runtime Configured" : "Deployment Pending"}
               </div>
@@ -89,12 +89,12 @@ export function Layout({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      <footer className="border-t border-white/5 py-8 mt-auto relative z-10 bg-background">
+      <footer className="border-t border-white/10 py-8 mt-auto relative z-10 bg-background/90">
         <div className="container mx-auto px-4 text-center text-muted-foreground text-xs uppercase tracking-widest flex flex-col items-center gap-4">
           <Ghost className="w-4 h-4 opacity-50" />
           <p>
-            THE SMART CONTRACT FOR RELATIONSHIP DRIFT.<br/>
-            IF YOU'RE READING THIS, THEY'RE NOT TEXTING BACK.
+            THE RECEIPT LEDGER FOR RELATIONSHIP DRIFT.<br/>
+            IF YOU'RE READING THIS, THE CHAIN REMEMBERS WHAT THEY DID.
           </p>
         </div>
       </footer>

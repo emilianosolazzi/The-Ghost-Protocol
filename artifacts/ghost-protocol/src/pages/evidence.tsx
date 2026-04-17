@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { ghostProtocolUiConstants } from "@workspace/ghost-contract";
-import { useSubmitEvidence } from "@/hooks/use-ghost-protocol";
+import { useStorySnapshot, useSubmitEvidence, useUnlockPricePreview } from "@/hooks/use-ghost-protocol";
 import { useWallet } from "@/hooks/use-wallet";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { formatEthAmount, getExplorerTransactionUrl } from "@/lib/ghost-protocol-client";
+import { formatEthAmount, formatGhostedAmount, getExplorerTransactionUrl } from "@/lib/ghost-protocol-client";
 import {
   fetchGhostSubmissionArchive,
   normaliseGhostSubmissionArchiveEntry,
@@ -186,9 +186,16 @@ export function Evidence() {
 
   const watchWeight   = form.watch("weight");
   const watchIsProxy  = form.watch("isProxy");
+  const watchHash = form.watch("hash");
+  const watchDramaType = form.watch("dramaType");
   const estimatedReward = watchIsProxy ? 0 : Math.min(watchWeight * receiptRewardMultiplier, maxGhostedPerSubmission);
   const mergedSubmissions = mergeSubmissionRecords(localSubmissions, remoteSubmissions);
   const remoteSubmissionKeys = new Set(remoteSubmissions.map((submission) => submission.txHash.toLowerCase()));
+  const selectedDrama = DRAMA_TYPES.find((dramaType) => dramaType.id === watchDramaType) ?? null;
+  const storySnapshot = useStorySnapshot(watchHash.trim());
+  const unlockPricePreview = useUnlockPricePreview(watchHash.trim());
+  const existingStory = storySnapshot.data;
+  const isKnownProofHash = Boolean(existingStory && existingStory.evidence.timestamp > 0);
 
   const clearLocalSubmissions = () => {
     writeLocalSubmissions([]);
@@ -285,26 +292,58 @@ export function Evidence() {
           <ShieldAlert className="w-8 h-8" />
         </div>
         <h1 className="text-4xl font-black mb-3">LOG YOUR RECEIPT</h1>
-        <p className="text-muted-foreground font-mono text-sm max-w-xl mx-auto leading-relaxed">
-          Submit direct proof of being ignored. The contract records the receipt, splits the fee, and rewards
-          direct submissions in <span className="text-primary font-bold">$GHOSTED</span>.
+        <p className="text-muted-foreground font-mono text-sm max-w-2xl mx-auto leading-relaxed">
+          Turn one ignored moment into a contract event. The protocol records your proof hash, splits the fee, creates a locked story,
+          and only pays <span className="text-primary font-bold">$GHOSTED</span> if the proof is direct.
           Each submission costs <span className="text-primary font-bold">{formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH</span>.
         </p>
       </div>
 
+      <div className="ghost-panel ghost-gradient-border p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="ghost-label mb-2">Before You Sign</p>
+            <h2 className="text-2xl font-black tracking-tight">What This Transaction Actually Does</h2>
+          </div>
+          <span className={`rounded-full border px-3 py-1 text-xs font-mono uppercase tracking-[0.18em] ${watchIsProxy ? "border-destructive/25 bg-destructive/8 text-destructive" : "border-primary/25 bg-primary/8 text-primary"}`}>
+            {watchIsProxy ? "Proxy proof" : "Direct proof"}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="ghost-panel-soft p-4">
+            <p className="ghost-label mb-2">Fee Split</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {formatEthAmount(treasuryCutEth, 5)} ETH goes to treasury and {formatEthAmount(protocolCutEth, 5)} ETH stays in the protocol.
+            </p>
+          </div>
+          <div className="ghost-panel-soft p-4">
+            <p className="ghost-label mb-2">Reward Preview</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {watchIsProxy ? "Proxy receipts are stored but pay zero GHOSTED." : `Direct reward preview: ${estimatedReward.toLocaleString()} GHOSTED, based on severity only.`}
+            </p>
+          </div>
+          <div className="ghost-panel-soft p-4">
+            <p className="ghost-label mb-2">Story Effect</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Every receipt initializes or references a locked story. The current base unlock is {formatGhostedAmount(ghostProtocolUiConstants.baseUnlockPrice)} GHOSTED.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Fee breakdown banner */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-card border border-white/5 rounded-xl p-4 text-center">
+        <div className="ghost-panel-soft p-4 text-center">
           <p className="font-mono text-xs text-muted-foreground mb-1">RECEIPT FEE</p>
           <p className="font-black text-xl text-primary">{formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH</p>
           <p className="font-mono text-xs text-muted-foreground mt-1">per submission</p>
         </div>
-        <div className="bg-card border border-white/5 rounded-xl p-4 text-center">
+        <div className="ghost-panel-soft p-4 text-center">
           <p className="font-mono text-xs text-muted-foreground mb-1">TREASURY CUT</p>
           <p className="font-black text-xl">{formatEthAmount(treasuryCutEth, 5)} ETH</p>
           <p className="font-mono text-xs text-muted-foreground mt-1">30% → community</p>
         </div>
-        <div className="bg-card border border-white/5 rounded-xl p-4 text-center">
+        <div className="ghost-panel-soft p-4 text-center">
           <p className="font-mono text-xs text-muted-foreground mb-1">PROTOCOL POOL</p>
           <p className="font-black text-xl">{formatEthAmount(protocolCutEth, 5)} ETH</p>
           <p className="font-mono text-xs text-muted-foreground mt-1">70% → retained by contract</p>
@@ -313,22 +352,22 @@ export function Evidence() {
 
       {/* Direct vs Proxy explainer */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-card border border-primary/20 rounded-xl p-4 flex flex-col gap-2">
+        <div className="ghost-panel-soft border-primary/20 p-4 flex flex-col gap-2">
           <div className="flex items-center gap-2 text-primary font-mono text-xs font-bold">
             <CheckCircle2 className="w-4 h-4" /> DIRECT — I SAW IT MYSELF
           </div>
-          <p className="text-xs text-muted-foreground leading-relaxed">Screenshot, read receipt, delivered message they never opened. Earns up to <span className="text-primary font-bold">{maxGhostedPerSubmission.toLocaleString()} $GHOSTED</span> and increments the contract&apos;s global direct assertion counter.</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">Screenshot, read receipt, delivered message they never opened. Earns up to <span className="text-primary font-bold">{maxGhostedPerSubmission.toLocaleString()} $GHOSTED</span> and increments the contract&apos;s direct receipt index.</p>
         </div>
-        <div className="bg-card border border-destructive/20 rounded-xl p-4 flex flex-col gap-2">
+        <div className="ghost-panel-soft border-destructive/20 p-4 flex flex-col gap-2">
           <div className="flex items-center gap-2 text-destructive font-mono text-xs font-bold">
             <AlertTriangle className="w-4 h-4" /> PROXY — HEARD FROM SOMEONE
           </div>
-          <p className="text-xs text-muted-foreground leading-relaxed">A friend told you, you saw them active, indirect evidence. It is still stored on-chain, but it earns zero $GHOSTED.</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">A friend told you, you saw them active, indirect evidence. It is still stored on-chain, but it earns zero $GHOSTED and does not count as direct proof.</p>
         </div>
       </div>
 
       {/* Form */}
-      <div className="bg-card border border-white/10 rounded-xl p-6 md:p-8 relative overflow-hidden shadow-2xl">
+      <div className="ghost-panel ghost-gradient-border p-6 md:p-8 relative overflow-hidden shadow-2xl">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
 
         <Form {...form}>
@@ -349,7 +388,7 @@ export function Evidence() {
                         key={d.id}
                         type="button"
                         onClick={() => field.onChange(field.value === d.id ? "" : d.id)}
-                        className={`p-3 rounded-lg border text-left transition-all ${field.value === d.id ? "border-primary bg-primary/10" : "border-white/10 hover:border-white/20"}`}
+                        className={`ghost-sheen p-3 rounded-xl border text-left transition-all ${field.value === d.id ? "border-primary bg-primary/12 shadow-[0_0_20px_rgba(139,92,246,0.14)]" : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"}`}
                       >
                         <p className="text-lg mb-1">{d.emoji}</p>
                         <p className={`font-mono text-xs font-bold leading-tight ${field.value === d.id ? "text-primary" : ""}`}>{d.label}</p>
@@ -374,7 +413,7 @@ export function Evidence() {
                     <button
                       type="button"
                       onClick={() => field.onChange(false)}
-                      className={`p-4 rounded-lg border text-left transition-all ${!field.value ? "border-primary bg-primary/10" : "border-white/10 hover:border-white/20"}`}
+                      className={`p-4 rounded-xl border text-left transition-all ${!field.value ? "border-primary bg-primary/12 shadow-[0_0_20px_rgba(139,92,246,0.14)]" : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"}`}
                     >
                       <CheckCircle2 className={`w-4 h-4 mb-2 ${!field.value ? "text-primary" : "text-muted-foreground"}`} />
                       <p className="font-mono text-sm font-bold">DIRECT</p>
@@ -383,7 +422,7 @@ export function Evidence() {
                     <button
                       type="button"
                       onClick={() => field.onChange(true)}
-                      className={`p-4 rounded-lg border text-left transition-all ${field.value ? "border-destructive bg-destructive/10" : "border-white/10 hover:border-white/20"}`}
+                      className={`p-4 rounded-xl border text-left transition-all ${field.value ? "border-destructive bg-destructive/10 shadow-[0_0_18px_rgba(239,68,68,0.12)]" : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"}`}
                     >
                       <AlertTriangle className={`w-4 h-4 mb-2 ${field.value ? "text-destructive" : "text-muted-foreground"}`} />
                       <p className="font-mono text-sm font-bold">THIRD PARTY</p>
@@ -411,7 +450,25 @@ export function Evidence() {
                   <FormControl>
                     <Input placeholder="0x... (unique fingerprint of your evidence)" className="font-mono bg-background border-white/10 focus-visible:ring-primary/50" {...field} />
                   </FormControl>
-                  <p className="text-xs text-muted-foreground font-mono mt-1.5">Each hash can only be submitted once — duplicates are rejected on-chain.</p>
+                  <p className="text-xs text-muted-foreground font-mono mt-1.5">Each hash can only be submitted once. If this proof already exists, the contract will reject the transaction.</p>
+                  {watchHash.trim().length > 0 && (
+                    <div className={`mt-3 rounded-xl border p-3 ${isKnownProofHash ? "border-destructive/20 bg-destructive/8" : watchHash.trim().match(/^0x[a-fA-F0-9]{64}$/) ? "border-primary/20 bg-primary/8" : "border-white/10 bg-white/[0.03]"}`}>
+                      <p className="font-mono text-xs font-bold mb-1">
+                        {isKnownProofHash
+                          ? "KNOWN PROOF HASH"
+                          : watchHash.trim().match(/^0x[a-fA-F0-9]{64}$/)
+                            ? "HASH SHAPE LOOKS VALID"
+                            : "WAITING FOR A FULL 32-BYTE HASH"}
+                      </p>
+                      <p className="text-xs text-muted-foreground font-mono leading-relaxed">
+                        {isKnownProofHash
+                          ? "This proof hash already points to an on-chain story. Reusing it will fail, so generate a fresh unique fingerprint before signing."
+                          : watchHash.trim().match(/^0x[a-fA-F0-9]{64}$/)
+                            ? "The format is correct. The final success still depends on uniqueness and the wallet transaction completing."
+                            : "Use 0x plus 64 hex characters. The app can generate one for you if you just need a unique placeholder for testing."}
+                      </p>
+                    </div>
+                  )}
                   <FormMessage className="text-destructive font-mono text-xs" />
                 </FormItem>
               )}
@@ -439,6 +496,9 @@ export function Evidence() {
                     </FormControl>
                     <span className="font-mono font-black text-2xl text-primary w-12 text-right">{field.value}</span>
                   </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/8">
+                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-primary to-fuchsia-400 transition-all duration-300" style={{ width: `${field.value}%` }} />
+                  </div>
                   <div className="flex justify-between font-mono text-xs text-muted-foreground mt-1">
                     <span>1 — mild vibe check ignored</span>
                     <span>100 — heartfelt message, read, zero reply</span>
@@ -449,7 +509,7 @@ export function Evidence() {
             />
 
             {/* Reward preview */}
-            <div className={`flex items-center gap-4 p-4 rounded-lg border ${watchIsProxy ? "border-destructive/20 bg-destructive/5" : "border-primary/20 bg-primary/5"}`}>
+            <div className={`flex items-center gap-4 p-4 rounded-xl border ${watchIsProxy ? "border-destructive/20 bg-destructive/5" : "border-primary/20 bg-primary/5"}`}>
               <Coins className={`w-5 h-5 flex-shrink-0 ${watchIsProxy ? "text-destructive" : "text-primary"}`} />
               <div className="flex-1">
                 {watchIsProxy ? (
@@ -468,6 +528,30 @@ export function Evidence() {
               </div>
             </div>
 
+            {(selectedDrama || unlockPricePreview.data || existingStory) && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="ghost-panel-soft p-4">
+                  <p className="ghost-label mb-2">Selected Drama</p>
+                  <p className="text-sm font-semibold text-white">{selectedDrama ? `${selectedDrama.emoji} ${selectedDrama.label}` : "No drama tag yet"}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{selectedDrama ? selectedDrama.desc : "Choose one to give the receipt better context in the ledger."}</p>
+                </div>
+                <div className="ghost-panel-soft p-4">
+                  <p className="ghost-label mb-2">ETH Unlock Preview</p>
+                  <p className="text-sm font-semibold text-white">
+                    {unlockPricePreview.data ? `${formatEthAmount(unlockPricePreview.data, 5)} ETH` : "No existing story yet"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">Shown only when the proof hash already maps to a story in the contract.</p>
+                </div>
+                <div className="ghost-panel-soft p-4">
+                  <p className="ghost-label mb-2">Current Access State</p>
+                  <p className="text-sm font-semibold text-white">
+                    {existingStory ? (existingStory.story.isPublic ? "Public story" : existingStory.canAccess ? "Unlocked for this wallet" : "Locked story") : "Will initialize on submit"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">Existing proof hashes can preview story state; new ones create a fresh locked story.</p>
+                </div>
+              </div>
+            )}
+
             {/* Description */}
             <FormField
               control={form.control}
@@ -484,7 +568,7 @@ export function Evidence() {
                       {...field}
                     />
                   </FormControl>
-                  <p className="text-xs text-muted-foreground font-mono mt-1.5">The contract stores only a description hash. This page keeps a local review copy and syncs it to the off-chain archive when the API is reachable.</p>
+                  <p className="text-xs text-muted-foreground font-mono mt-1.5">The contract stores only a description hash. This page keeps a readable review copy locally and syncs it to the off-chain archive when the API is reachable.</p>
                   <FormMessage className="text-destructive font-mono text-xs" />
                 </FormItem>
               )}
@@ -492,7 +576,7 @@ export function Evidence() {
 
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isPending || isKnownProofHash}
               className="w-full h-14 mt-2 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold font-mono rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden"
             >
               {isPending ? (
@@ -503,7 +587,7 @@ export function Evidence() {
               ) : (
                 <>
                   <Upload className="w-5 h-5 group-hover:-translate-y-1 transition-transform" />
-                  SUBMIT — {formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH FEE REQUIRED
+                  {isKnownProofHash ? "PROOF ALREADY EXISTS — GENERATE A FRESH HASH" : `SUBMIT — ${formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH FEE REQUIRED`}
                   <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </>
               )}
@@ -514,7 +598,7 @@ export function Evidence() {
 
         {/* Last reward callout */}
         {lastResult && lastResult.reward > 0 && (
-          <div className="mt-6 p-4 rounded-lg border border-primary/30 bg-primary/5 text-center">
+          <div className="mt-6 p-4 rounded-xl border border-primary/30 bg-primary/5 text-center shadow-[0_0_24px_rgba(139,92,246,0.14)]">
             <p className="font-mono text-xs text-muted-foreground mb-1">LAST RECEIPT — {lastResult.dramaLabel} — EARNED</p>
             <p className="text-3xl font-black text-primary">{lastResult.reward.toLocaleString()} $GHOSTED</p>
           </div>
@@ -567,7 +651,7 @@ export function Evidence() {
                 const explorerUrl = getExplorerTransactionUrl(submission.txHash);
 
                 return (
-                  <div key={`${submission.txHash}-${submission.submittedAt}`} className="rounded-lg border border-white/5 bg-white/[0.02] p-4 space-y-3">
+                  <div key={`${submission.txHash}-${submission.submittedAt}`} className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
                         <span>{new Date(submission.submittedAt).toLocaleString()}</span>
@@ -596,11 +680,11 @@ export function Evidence() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-xs">
-                      <div className="rounded-md border border-white/5 bg-background/50 p-3">
+                      <div className="rounded-md border border-white/10 bg-background/50 p-3">
                         <p className="text-muted-foreground mb-1">PROOF HASH</p>
                         <p className="break-all">{truncateValue(submission.proofHash)}</p>
                       </div>
-                      <div className="rounded-md border border-white/5 bg-background/50 p-3">
+                      <div className="rounded-md border border-white/10 bg-background/50 p-3">
                         <p className="text-muted-foreground mb-1">TX HASH</p>
                         <p className="break-all">{truncateValue(submission.txHash)}</p>
                       </div>

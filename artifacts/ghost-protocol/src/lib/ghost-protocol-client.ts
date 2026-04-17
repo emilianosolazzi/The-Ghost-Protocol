@@ -14,6 +14,43 @@ import {
 } from "viem";
 import { getGhostProtocolChain, getGhostProtocolConfig, type GhostProtocolRuntimeConfig } from "@/lib/ghost-protocol-config";
 
+const ghostedTokenAbi = [
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "owner", type: "address" },
+      { internalType: "address", name: "spender", type: "address" },
+    ],
+    name: "allowance",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "spender", type: "address" },
+      { internalType: "uint256", name: "value", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "holder", type: "address" }],
+    name: "credibilityScore",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
 export type GhostProtocolDeployment = GhostProtocolRuntimeConfig & {
   hasBytecode: boolean;
 };
@@ -27,7 +64,9 @@ export type GhostProtocolStats = {
   burnedGhosted: bigint;
   revenueCollected: bigint;
   treasuryDistributed: bigint;
-  protocolRevenue: bigint;
+  protocolRetainedRevenue: bigint;
+  protocolWithdrawn: bigint;
+  protocolBalance: bigint;
   gaslightUnlocked: boolean;
   isPaused: boolean;
 };
@@ -65,6 +104,15 @@ export type GhostStorySnapshot = {
   truthAssertionCount: number;
   hasUnlocked: boolean;
   canAccess: boolean;
+};
+
+export type GhostedWalletState = {
+  tokenAddress: Address;
+  balance: bigint;
+  allowance: bigint;
+  tokenCredibilityScore: bigint;
+  protocolCredibilityScore: bigint;
+  effectiveCredibilityScore: bigint;
 };
 
 export type SubmitEvidenceInput = {
@@ -115,6 +163,51 @@ export function getExplorerTransactionUrl(hash: Hash) {
   return config.explorerUrl ? `${config.explorerUrl}/tx/${hash}` : null;
 }
 
+export async function readGhostedTokenAddress() {
+  const config = assertConfiguredConfig();
+  const client = getPublicClient();
+  return await client.readContract({
+    address: config.address,
+    abi: ghostProtocolAbi,
+    functionName: "ghostedToken",
+  }) as Address;
+}
+
+export async function readGhostedWalletState(account: Address): Promise<GhostedWalletState> {
+  const config = assertConfiguredConfig();
+  const client = getPublicClient();
+  const tokenAddress = await readGhostedTokenAddress();
+  const [balance, allowance, credibility] = await Promise.all([
+    client.readContract({
+      address: tokenAddress,
+      abi: ghostedTokenAbi,
+      functionName: "balanceOf",
+      args: [account],
+    }) as Promise<bigint>,
+    client.readContract({
+      address: tokenAddress,
+      abi: ghostedTokenAbi,
+      functionName: "allowance",
+      args: [account, config.address],
+    }) as Promise<bigint>,
+    client.readContract({
+      address: config.address,
+      abi: ghostProtocolAbi as any,
+      functionName: "getUserCredibility",
+      args: [account],
+    }) as Promise<readonly [bigint, bigint, bigint]>,
+  ]);
+
+  return {
+    tokenAddress,
+    balance,
+    allowance,
+    tokenCredibilityScore: credibility[0],
+    protocolCredibilityScore: credibility[1],
+    effectiveCredibilityScore: credibility[2],
+  };
+}
+
 export async function detectGhostProtocolDeployment(): Promise<GhostProtocolDeployment> {
   const config = getGhostProtocolConfig();
   if (!config.address || !config.rpcUrl) {
@@ -137,9 +230,9 @@ export async function readProtocolStats(): Promise<GhostProtocolStats> {
   const client = getPublicClient();
   const response = await client.readContract({
     address: config.address,
-    abi: ghostProtocolAbi,
+    abi: ghostProtocolAbi as any,
     functionName: "getProtocolStats",
-  }) as readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean];
+  }) as unknown as readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean];
 
   return {
     totalEvidence: Number(response[0]),
@@ -150,9 +243,11 @@ export async function readProtocolStats(): Promise<GhostProtocolStats> {
     burnedGhosted: response[5],
     revenueCollected: response[6],
     treasuryDistributed: response[7],
-    protocolRevenue: response[8],
-    gaslightUnlocked: response[9],
-    isPaused: response[10],
+    protocolRetainedRevenue: response[8],
+    protocolWithdrawn: response[9],
+    protocolBalance: response[10],
+    gaslightUnlocked: response[11],
+    isPaused: response[12],
   };
 }
 
@@ -209,7 +304,7 @@ async function readStoryPayoutInfo(client: ReturnType<typeof createPublicClient>
   } satisfies GhostStoryPayoutInfo;
 }
 
-export async function readRecentEvidence(limit = 6): Promise<GhostStorySnapshot[]> {
+export async function readRecentEvidence(limit = 6, account: Address | null = null): Promise<GhostStorySnapshot[]> {
   const config = assertConfiguredConfig();
   const client = getPublicClient();
   const count = await client.readContract({
@@ -232,7 +327,7 @@ export async function readRecentEvidence(limit = 6): Promise<GhostStorySnapshot[
   }) as readonly Hex[];
 
   const snapshots = await Promise.all(
-    [...proofHashes].reverse().map((proofHash) => readStorySnapshot(proofHash, null)),
+    [...proofHashes].reverse().map((proofHash) => readStorySnapshot(proofHash, account)),
   );
 
   return snapshots;
@@ -318,6 +413,26 @@ export async function submitEvidenceTransaction(
     functionName: "submitEvidence",
     args: [input.proofHash, BigInt(input.severity), input.description, input.dramaType, input.isProxy],
     value: ghostProtocolUiConstants.receiptFeeEth,
+  });
+
+  return waitForReceipt(hash);
+}
+
+export async function approveGhostedSpendTransaction(
+  walletClient: WalletClient,
+  account: Address,
+  amount: bigint,
+) {
+  const tokenAddress = await readGhostedTokenAddress();
+  const config = assertConfiguredConfig();
+  const chain = getGhostProtocolChain() ?? undefined;
+  const hash = await walletClient.writeContract({
+    account,
+    chain,
+    address: tokenAddress,
+    abi: ghostedTokenAbi,
+    functionName: "approve",
+    args: [config.address, amount],
   });
 
   return waitForReceipt(hash);

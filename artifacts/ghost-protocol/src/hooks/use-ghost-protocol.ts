@@ -3,11 +3,13 @@ import type { Address, Hex, WalletClient } from "viem";
 import { useWallet } from "@/hooks/use-wallet";
 import { getGhostProtocolConfig } from "@/lib/ghost-protocol-config";
 import {
+  approveGhostedSpendTransaction,
   assertTruthTransaction,
   detectGhostProtocolDeployment,
   isProofHash,
   makeStoryPublicTransaction,
   previewUnlockPriceInEth,
+  readGhostedWalletState,
   readProtocolStats,
   readRecentEvidence,
   readStorySnapshot,
@@ -86,11 +88,24 @@ export function useGhostProtocolStats() {
 
 export function useRecentEvidence(limit = 6) {
   const config = getGhostProtocolConfig();
+  const wallet = useWallet();
   return useQuery({
-    queryKey: [...ghostProtocolQueryKey, "recentEvidence", config.address, limit],
-    queryFn: () => readRecentEvidence(limit),
+    queryKey: [...ghostProtocolQueryKey, "recentEvidence", config.address, limit, wallet.account],
+    queryFn: () => readRecentEvidence(limit, wallet.account),
     enabled: config.isConfigured,
     staleTime: 15_000,
+  });
+}
+
+export function useGhostedWalletState() {
+  const config = getGhostProtocolConfig();
+  const wallet = useWallet();
+
+  return useQuery({
+    queryKey: [...ghostProtocolQueryKey, "ghostedWallet", config.address, wallet.account],
+    queryFn: () => readGhostedWalletState(wallet.account as Address),
+    enabled: config.isConfigured && wallet.account !== null,
+    staleTime: 10_000,
   });
 }
 
@@ -125,6 +140,10 @@ export const useSubmitEvidenceTransaction = createWriteMutation<SubmitEvidenceIn
 
 // Alias for shorter name used in pages
 export const useSubmitEvidence = useSubmitEvidenceTransaction;
+
+export const useApproveGhostedSpendTransaction = createWriteMutation<bigint>(
+  approveGhostedSpendTransaction,
+);
 
 export const useUnlockStoryByBurnTransaction = createWriteMutation<Hex>(
   unlockStoryByBurnTransaction,

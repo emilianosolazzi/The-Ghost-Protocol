@@ -53,17 +53,22 @@ contract GhostProtocol {
     error InvalidAddress();
     error InvalidAssertionIndex();
     error NotPendingOwner();
+    error NotPricingOracle();
     error InvalidProofHash();
+    error InvalidQuoteAmount();
     error InvalidSeverity();
+    error InsufficientProtocolEth(uint256 availableAmount, uint256 requestedAmount);
     error NotOracle();
     error NotOwner();
     error OnlySubmitter();
     error ReentrancyGuardActive();
+    error StaleUnlockPriceQuote(uint256 lastUpdatedAt, uint256 maxAge);
     error StoryAlreadyPublic();
     error StoryDoesNotExist();
     error StoryIsPublic();
     error SubmitterNotRecorded();
     error TokenTransferFailed();
+    error UnlockPriceQuoteNotSet();
 
     event EvidenceSubmitted(
         bytes32 indexed proofHash,
@@ -84,30 +89,40 @@ contract GhostProtocol {
     event OwnershipTransferStarted(address indexed previousOwner, address indexed pendingOwner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event PauseStateUpdated(bool paused);
+    event PricingOracleUpdated(address indexed previousPricingOracle, address indexed newPricingOracle);
+    event ProtocolCredibilityUpdated(address indexed account, uint256 previousScore, uint256 newScore, string reason);
     event ProtocolFunded(address indexed sender, uint256 amount);
+    event ProtocolRevenueWithdrawn(address indexed treasury, uint256 amount);
     event StoryMadePublic(bytes32 indexed proofHash, address indexed submitter);
     event StoryUnlocked(bytes32 indexed proofHash, address indexed unlocker, uint256 cost, string method);
     event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
     event TruthAsserted(bytes32 indexed proofHash, address indexed assertor, bool believesReal, uint256 stake);
     event TruthResolved(bytes32 indexed proofHash, address indexed assertor, bool wasCorrect, uint256 reward);
+    event UnlockPriceQuoteUpdated(uint256 previousQuoteWeiPerToken, uint256 newQuoteWeiPerToken, uint256 updatedAt);
     event UnlockPriceUpdated(bytes32 indexed proofHash, uint256 newPrice);
 
     uint256 public constant BASE_UNLOCK_PRICE = 500 * 10 ** 18;
     uint256 public constant CREDIBILITY_UNLOCK_THRESHOLD = 1000 * 10 ** 18;
     uint256 public constant GHOSTING_RECEIPT_FEE = 0.0095 ether;
+    uint256 public constant MAX_UNLOCK_PRICE = 2_500 * 10 ** 18;
     uint256 public constant MAX_GHOSTED_PER_SUBMISSION = 5_000 * 10 ** 18;
+    uint256 public constant MAX_UNLOCK_PRICE_QUOTE_AGE = 1 days;
     uint256 public constant TREASURY_SPLIT_BPS = 3_000;
     uint256 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant TRUTH_ASSERTION_STAKE = 100 * 10 ** 18;
     uint256 public constant TRUTH_WIN_REWARD = 200 * 10 ** 18;
+    uint256 public constant UNLOCK_PRICE_STEP = 50 * 10 ** 18;
 
     IGhostedToken public immutable ghostedToken;
 
     address public owner;
     address public pendingOwner;
     address public oracle;
+    address public pricingOracle;
     address public treasury;
     bool public paused;
+    uint256 public unlockPriceQuoteUpdatedAt;
+    uint256 public unlockPriceQuoteWeiPerToken;
 
     uint256 public evidenceCounter;
     uint256 public directEvidenceCount;
@@ -118,6 +133,7 @@ contract GhostProtocol {
     uint256 public totalRevenueCollected;
     uint256 public totalTreasuryDistributed;
     uint256 public totalProtocolRevenue;
+    uint256 public totalProtocolWithdrawn;
 
     mapping(bytes32 => Evidence) private _evidenceLog;
     mapping(bytes32 => TruthAssertion[]) private _truthAssertions;
@@ -127,6 +143,7 @@ contract GhostProtocol {
     mapping(bytes32 => address) public evidenceSubmitter;
     mapping(bytes32 => mapping(address => bool)) public hasUnlockedStory;
     mapping(bytes32 => uint256) public storyEthEarnings;
+    mapping(address => uint256) public protocolCredibilityScore;
     mapping(address => uint256) public totalTruthWins;
     mapping(address => uint256) public truthWinStreak;
 
@@ -139,6 +156,11 @@ contract GhostProtocol {
 
     modifier onlyOracle() {
         if (msg.sender != oracle) revert NotOracle();
+        _;
+    }
+
+    modifier onlyPricingOracle() {
+        if (msg.sender != pricingOracle) revert NotPricingOracle();
         _;
     }
 
@@ -163,6 +185,7 @@ contract GhostProtocol {
         owner = msg.sender;
         treasury = treasuryAddress;
         oracle = oracleAddress;
+        pricingOracle = oracleAddress;
     }
 
     receive() external payable {
@@ -190,6 +213,23 @@ contract GhostProtocol {
         emit OracleUpdated(previousOracle, newOracle);
     }
 
+    function setPricingOracle(address newPricingOracle) external onlyOwner {
+        if (newPricingOracle == address(0)) revert InvalidAddress();
+        address previousPricingOracle = pricingOracle;
+        pricingOracle = newPricingOracle;
+        emit PricingOracleUpdated(previousPricingOracle, newPricingOracle);
+    }
+
+    function setUnlockPriceQuote(uint256 quoteWeiPerToken) external onlyPricingOracle {
+        if (quoteWeiPerToken == 0) revert InvalidQuoteAmount();
+
+        uint256 previousQuote = unlockPriceQuoteWeiPerToken;
+        unlockPriceQuoteWeiPerToken = quoteWeiPerToken;
+        unlockPriceQuoteUpdatedAt = block.timestamp;
+
+        emit UnlockPriceQuoteUpdated(previousQuote, quoteWeiPerToken, block.timestamp);
+    }
+
     function setTreasury(address newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert InvalidAddress();
         address previousTreasury = treasury;
@@ -200,6 +240,15 @@ contract GhostProtocol {
     function setPaused(bool nextPaused) external onlyOwner {
         paused = nextPaused;
         emit PauseStateUpdated(nextPaused);
+    }
+
+    function withdrawProtocolETH(uint256 amount) external onlyOwner nonReentrant {
+        uint256 availableBalance = address(this).balance;
+        if (amount > availableBalance) revert InsufficientProtocolEth(availableBalance, amount);
+
+        totalProtocolWithdrawn += amount;
+        _safeTransferETH(treasury, amount);
+        emit ProtocolRevenueWithdrawn(treasury, amount);
     }
 
     function submitEvidence(
@@ -282,7 +331,7 @@ contract GhostProtocol {
         hasUnlockedStory[proofHash][msg.sender] = true;
         story.timesUnlocked += 1;
         story.totalEarnedFromUnlocks += submitterShare;
-        story.unlockPrice = currentPrice + (currentPrice * story.timesUnlocked) / 1_000;
+        story.unlockPrice = _nextUnlockPrice(currentPrice);
 
         emit StoryUnlocked(proofHash, msg.sender, currentPrice, "BURN");
         emit UnlockPriceUpdated(proofHash, story.unlockPrice);
@@ -295,8 +344,8 @@ contract GhostProtocol {
         LockedStory storage story = _ensureStoryInitialized(proofHash);
         if (story.isPublic) revert StoryIsPublic();
 
-        uint256 myCredibility = ghostedToken.credibilityScore(msg.sender);
-        uint256 requiredCredibility = _evidenceLog[proofHash].weight * 10 ** 16;
+        uint256 myCredibility = _effectiveCredibility(msg.sender);
+        uint256 requiredCredibility = _requiredCredibilityFor(proofHash);
 
         if (myCredibility < requiredCredibility) {
             revert InsufficientCredibility(myCredibility, requiredCredibility);
@@ -309,7 +358,7 @@ contract GhostProtocol {
         hasUnlockedStory[proofHash][msg.sender] = true;
 
         uint256 credibilityBoost = (requiredCredibility * 5) / 100;
-        ghostedToken.updateCredibilityScore(msg.sender, myCredibility + credibilityBoost);
+        _increaseProtocolCredibility(msg.sender, credibilityBoost, "CREDIBILITY_UNLOCK");
 
         emit StoryUnlocked(proofHash, msg.sender, 0, "CREDIBILITY");
     }
@@ -346,9 +395,7 @@ contract GhostProtocol {
             totalGhostedRewarded += TRUTH_WIN_REWARD;
             truthWinStreak[assertion.assertor] += 1;
             totalTruthWins[assertion.assertor] += 1;
-
-            uint256 currentCredibility = ghostedToken.credibilityScore(assertion.assertor);
-            ghostedToken.updateCredibilityScore(assertion.assertor, currentCredibility + (100 * 10 ** 18));
+            _increaseProtocolCredibility(assertion.assertor, 100 * 10 ** 18, "TRUTH_WIN");
         } else {
             LockedStory storage story = _ensureStoryInitialized(proofHash);
             uint256 halfStake = TRUTH_ASSERTION_STAKE / 2;
@@ -390,7 +437,7 @@ contract GhostProtocol {
 
         hasUnlockedStory[proofHash][msg.sender] = true;
         story.timesUnlocked += 1;
-        story.unlockPrice = currentPrice + (currentPrice * story.timesUnlocked) / 1_000;
+    story.unlockPrice = _nextUnlockPrice(currentPrice);
         storyEthEarnings[proofHash] += ethPrice;
 
         _safeTransferETH(story.submitter, ethPrice);
@@ -415,7 +462,9 @@ contract GhostProtocol {
             uint256 burnedGhosted,
             uint256 revenueCollected,
             uint256 treasuryDistributed,
-            uint256 protocolRevenue,
+            uint256 protocolRetainedRevenue,
+            uint256 protocolWithdrawn,
+            uint256 protocolBalance,
             bool gaslightUnlocked,
             bool isPaused
         )
@@ -430,9 +479,21 @@ contract GhostProtocol {
             totalRevenueCollected,
             totalTreasuryDistributed,
             totalProtocolRevenue,
+            totalProtocolWithdrawn,
+            address(this).balance,
             evidenceCounter >= 10,
             paused
         );
+    }
+
+    function getUserCredibility(address account)
+        external
+        view
+        returns (uint256 tokenCredibility, uint256 protocolCredibility, uint256 effectiveCredibility)
+    {
+        tokenCredibility = ghostedToken.credibilityScore(account);
+        protocolCredibility = protocolCredibilityScore[account];
+        effectiveCredibility = tokenCredibility + protocolCredibility;
     }
 
     function getEvidence(bytes32 proofHash)
@@ -596,8 +657,41 @@ contract GhostProtocol {
         if (!success) revert TokenTransferFailed();
     }
 
+    function _effectiveCredibility(address account) internal view returns (uint256) {
+        return ghostedToken.credibilityScore(account) + protocolCredibilityScore[account];
+    }
+
+    function _increaseProtocolCredibility(address account, uint256 amount, string memory reason) internal {
+        uint256 previousScore = protocolCredibilityScore[account];
+        uint256 newScore = previousScore + amount;
+        protocolCredibilityScore[account] = newScore;
+        emit ProtocolCredibilityUpdated(account, previousScore, newScore, reason);
+    }
+
+    function _nextUnlockPrice(uint256 currentPrice) internal pure returns (uint256) {
+        if (currentPrice >= MAX_UNLOCK_PRICE) {
+            return MAX_UNLOCK_PRICE;
+        }
+
+        uint256 nextPrice = currentPrice + UNLOCK_PRICE_STEP;
+        return nextPrice > MAX_UNLOCK_PRICE ? MAX_UNLOCK_PRICE : nextPrice;
+    }
+
+    function _requiredCredibilityFor(bytes32 proofHash) internal view returns (uint256) {
+        uint256 severityRequirement = _evidenceLog[proofHash].weight * 10 ** 16;
+        return severityRequirement > CREDIBILITY_UNLOCK_THRESHOLD
+            ? severityRequirement
+            : CREDIBILITY_UNLOCK_THRESHOLD;
+    }
+
     function _convertTokensToETH(uint256 tokenAmount) internal view returns (uint256) {
+        uint256 quoteUpdatedAt = unlockPriceQuoteUpdatedAt;
+        if (quoteUpdatedAt == 0) revert UnlockPriceQuoteNotSet();
+        if (block.timestamp > quoteUpdatedAt + MAX_UNLOCK_PRICE_QUOTE_AGE) {
+            revert StaleUnlockPriceQuote(quoteUpdatedAt, MAX_UNLOCK_PRICE_QUOTE_AGE);
+        }
+
         uint256 tokenUnit = 10 ** ghostedToken.decimals();
-        return (tokenAmount * 10 ** 12) / tokenUnit;
+        return (tokenAmount * unlockPriceQuoteWeiPerToken) / tokenUnit;
     }
 }

@@ -5,20 +5,20 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0" +
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0" +
 " hover-elevate active-elevate-2",
   {
     variants: {
       variant: {
         default:
-           "bg-primary text-primary-foreground border border-primary-border",
+           "bg-primary text-primary-foreground border border-primary-border shadow-[0_0_24px_rgba(139,92,246,0.28)] hover:shadow-[0_0_30px_rgba(139,92,246,0.38)]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm border-destructive-border",
+          "bg-destructive text-destructive-foreground shadow-sm border-destructive-border hover:bg-destructive/92",
         outline:
-          " border [border-color:var(--button-outline)] shadow-xs active:shadow-none ",
+          "border bg-white/[0.03] text-white [border-color:var(--button-outline)] shadow-xs hover:bg-white/[0.07] hover:border-white/30 active:shadow-none",
         secondary:
-          "border bg-secondary text-secondary-foreground border border-secondary-border ",
-        ghost: "border border-transparent",
+          "border bg-secondary text-secondary-foreground border border-secondary-border hover:bg-secondary/85",
+        ghost: "border border-transparent hover:bg-white/[0.05] hover:text-white",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

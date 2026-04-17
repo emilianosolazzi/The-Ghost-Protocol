@@ -19,7 +19,7 @@ export function Landing() {
         <div className="container relative z-10 mx-auto px-4 flex flex-col items-center text-center mt-[-10vh]">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-mono mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            CONTRACT IS LIVE. YOU'VE BEEN GHOSTED.
+            CONTRACT IS LIVE. RECEIPTS ONLY. NO MOCKS.
           </div>
           
           <h1 className="text-6xl md:text-8xl lg:text-9xl font-black tracking-tighter text-white mb-6 animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-150 drop-shadow-[0_0_30px_rgba(139,92,246,0.5)]">
@@ -27,9 +27,9 @@ export function Landing() {
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-purple-400 to-white">ON READ.</span>
           </h1>
           
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-10 font-mono animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300">
-            $GHOSTED is the token wired into GhostProtocol. Submit direct evidence, pay a fixed {formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH receipt fee,
-            and watch the live contract state update without mocks.
+          <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mb-10 font-mono animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300 leading-relaxed">
+            GhostProtocol is a receipt ledger with unlockable stories. Log a unique proof hash, pay the fixed {formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH fee,
+            earn GHOSTED only for direct proof, and watch the live contract counters react in real time.
           </p>
           
           <div className="flex flex-col sm:flex-row items-center gap-4 animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-500">
@@ -40,6 +40,21 @@ export function Landing() {
             <Link href="/evidence" className="h-14 px-8 inline-flex items-center justify-center rounded-md border border-white/10 bg-white/5 text-white font-mono hover:bg-white/10 transition-all backdrop-blur-sm">
               LOG YOUR RECEIPTS
             </Link>
+          </div>
+
+          <div className="mt-10 grid w-full max-w-4xl grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="ghost-panel-soft p-4 text-left">
+              <p className="ghost-label mb-2">1. Log A Receipt</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">Direct proof pays GHOSTED. Proxy proof is recorded, but earns nothing.</p>
+            </div>
+            <div className="ghost-panel-soft p-4 text-left">
+              <p className="ghost-label mb-2">2. Story Locks In</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">Every proof creates a locked story priced from the base unlock of 500 GHOSTED.</p>
+            </div>
+            <div className="ghost-panel-soft p-4 text-left">
+              <p className="ghost-label mb-2">3. Truth Stakes Happen Later</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">Separate truth assertions stake 100 GHOSTED and resolve through the oracle path.</p>
+            </div>
           </div>
         </div>
         
@@ -57,7 +72,7 @@ export function Landing() {
               <span className="text-muted-foreground">•</span>
               <span className="text-white">TOTAL: {stats.totalEvidence}</span>
               <span className="text-muted-foreground">•</span>
-              <span className="text-primary font-bold">DIRECT ASSERTIONS: {stats.totalTruthAssertions}</span>
+              <span className="text-primary font-bold">DIRECT RECEIPT INDEX: {stats.totalTruthAssertions}</span>
               <span className="text-muted-foreground">•</span>
               <span className="text-white">REVENUE: {(Number(stats.revenueCollected) / 1e18).toFixed(2)} ETH</span>
               <span className="text-muted-foreground">•</span>
@@ -96,7 +111,7 @@ export function Landing() {
                   </div>
                   <div>
                     <h4 className="font-bold font-mono">EVERY RECEIPT COSTS {formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH</h4>
-                    <p className="text-sm text-muted-foreground">30% goes to treasury. The remaining 70% stays in GhostProtocol as protocol revenue.</p>
+                      <p className="text-sm text-muted-foreground">30% goes to treasury. The remaining 70% is tracked as retained revenue, while the live contract balance is shown separately.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 p-4 rounded-lg bg-card border border-white/5">
@@ -187,7 +202,7 @@ export function Landing() {
           <div className="text-center max-w-4xl mx-auto mb-16">
             <h2 className="text-4xl md:text-5xl font-black mb-6">LOG YOUR RECEIPTS</h2>
             <p className="text-xl text-muted-foreground font-mono">
-              The contract lives on real submissions. Send a unique proof hash, set severity, and the dashboard updates from the chain.
+              The loop is simple: unique proof hash, severity, direct or proxy, then a permanent contract event.
             </p>
           </div>
           
@@ -197,21 +212,21 @@ export function Landing() {
                 <div className="w-8 h-8 rounded bg-primary/20 text-primary flex items-center justify-center font-bold shrink-0 mt-1">1</div>
                 <div>
                   <h4 className="font-bold text-lg mb-2">TURN THE SILENCE INTO A RECEIPT</h4>
-                  <p className="text-muted-foreground text-sm font-mono">Convert your read timestamps into a unique proof hash.</p>
+                  <p className="text-muted-foreground text-sm font-mono">Convert the moment into a unique proof hash the contract can verify as unused.</p>
                 </div>
               </div>
               <div className="flex gap-4 items-start">
                 <div className="w-8 h-8 rounded bg-primary/20 text-primary flex items-center justify-center font-bold shrink-0 mt-1">2</div>
                 <div>
                   <h4 className="font-bold text-lg mb-2">RATE HOW BAD IT WAS</h4>
-                  <p className="text-muted-foreground text-sm font-mono">Was it a "hey" or a three-paragraph heartfelt message?</p>
+                  <p className="text-muted-foreground text-sm font-mono">Was it a soft fade or a full ghost after a serious message? Severity drives only the direct payout.</p>
                 </div>
               </div>
               <div className="flex gap-4 items-start">
                 <div className="w-8 h-8 rounded bg-primary/20 text-primary flex items-center justify-center font-bold shrink-0 mt-1">3</div>
                 <div>
                   <h4 className="font-bold text-lg mb-2">MAKE IT PERMANENT</h4>
-                  <p className="text-muted-foreground text-sm font-mono">Your experience gets logged on-chain. Forever. They can't unsend it.</p>
+                  <p className="text-muted-foreground text-sm font-mono">Your receipt gets logged on-chain, a story gets initialized, and the dashboard reflects it after the transaction lands.</p>
                 </div>
               </div>
             </div>
