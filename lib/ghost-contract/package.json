@@ -9,14 +9,22 @@
   "scripts": {
     "build": "node ./scripts/compile.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "hardhat test --config ./hardhat.config.cjs ./test/ghost-protocol.smoke.cjs",
     "hardhat:node": "hardhat node",
-    "hardhat:deploy": "hardhat run scripts/hardhat/deploy.ts --network localhost"
+    "hardhat:deploy": "hardhat run --config ./hardhat.config.cjs scripts/hardhat/deploy.ts --network localhost"
   },
   "dependencies": {
-    "solc": "^0.8.30",
-    "ethers": "^6.13.0"
+    "@openzeppelin/contracts": "^5.1.0",
+    "ethers": "^6.13.0",
+    "solc": "^0.8.30"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.1.0",
+    "chai": "^4.3.10",
+    "hardhat": "^2.21.0",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9"
   }
 }

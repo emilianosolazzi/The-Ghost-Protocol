@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-interface IGhostedToken {
-    function transfer(address to, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+interface IGhostedToken is IERC20 {
     function burn(address from, uint256 amount) external;
     function credibilityScore(address holder) external view returns (uint256);
+    function decimals() external view returns (uint8);
     function updateCredibilityScore(address holder, uint256 newScore) external;
 }
 
 contract GhostProtocol {
+    using SafeERC20 for IERC20;
+
     struct Evidence {
         uint256 timestamp;
         uint256 weight;
@@ -46,12 +50,15 @@ contract GhostProtocol {
     error EvidenceAlreadyExists();
     error InsufficientCredibility(uint256 currentCredibility, uint256 requiredCredibility);
     error InsufficientEth(uint256 requiredAmount, uint256 receivedAmount);
+    error InvalidAddress();
     error InvalidAssertionIndex();
+    error NotPendingOwner();
     error InvalidProofHash();
     error InvalidSeverity();
     error NotOracle();
     error NotOwner();
     error OnlySubmitter();
+    error ReentrancyGuardActive();
     error StoryAlreadyPublic();
     error StoryDoesNotExist();
     error StoryIsPublic();
@@ -74,6 +81,7 @@ contract GhostProtocol {
         uint256 protocolCut
     );
     event OracleUpdated(address indexed previousOracle, address indexed newOracle);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed pendingOwner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event PauseStateUpdated(bool paused);
     event ProtocolFunded(address indexed sender, uint256 amount);
@@ -96,6 +104,7 @@ contract GhostProtocol {
     IGhostedToken public immutable ghostedToken;
 
     address public owner;
+    address public pendingOwner;
     address public oracle;
     address public treasury;
     bool public paused;
@@ -139,7 +148,7 @@ contract GhostProtocol {
     }
 
     modifier nonReentrant() {
-        if (_reentrancyStatus != 1) revert TokenTransferFailed();
+        if (_reentrancyStatus != 1) revert ReentrancyGuardActive();
         _reentrancyStatus = 2;
         _;
         _reentrancyStatus = 1;
@@ -147,7 +156,7 @@ contract GhostProtocol {
 
     constructor(address ghostedTokenAddress, address treasuryAddress, address oracleAddress) {
         if (ghostedTokenAddress == address(0) || treasuryAddress == address(0) || oracleAddress == address(0)) {
-            revert InvalidProofHash();
+            revert InvalidAddress();
         }
 
         ghostedToken = IGhostedToken(ghostedTokenAddress);
@@ -161,21 +170,28 @@ contract GhostProtocol {
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert InvalidProofHash();
+        if (newOwner == address(0)) revert InvalidAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner();
         address previousOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(previousOwner, newOwner);
+        owner = msg.sender;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previousOwner, msg.sender);
     }
 
     function setOracle(address newOracle) external onlyOwner {
-        if (newOracle == address(0)) revert InvalidProofHash();
+        if (newOracle == address(0)) revert InvalidAddress();
         address previousOracle = oracle;
         oracle = newOracle;
         emit OracleUpdated(previousOracle, newOracle);
     }
 
     function setTreasury(address newTreasury) external onlyOwner {
-        if (newTreasury == address(0)) revert InvalidProofHash();
+        if (newTreasury == address(0)) revert InvalidAddress();
         address previousTreasury = treasury;
         treasury = newTreasury;
         emit TreasuryUpdated(previousTreasury, newTreasury);
@@ -568,13 +584,11 @@ contract GhostProtocol {
     }
 
     function _safeTokenTransfer(address to, uint256 amount) internal {
-        bool success = ghostedToken.transfer(to, amount);
-        if (!success) revert TokenTransferFailed();
+        IERC20(address(ghostedToken)).safeTransfer(to, amount);
     }
 
     function _safeTokenTransferFrom(address from, address to, uint256 amount) internal {
-        bool success = ghostedToken.transferFrom(from, to, amount);
-        if (!success) revert TokenTransferFailed();
+        IERC20(address(ghostedToken)).safeTransferFrom(from, to, amount);
     }
 
     function _safeTransferETH(address to, uint256 amount) internal {
@@ -582,7 +596,8 @@ contract GhostProtocol {
         if (!success) revert TokenTransferFailed();
     }
 
-    function _convertTokensToETH(uint256 tokenAmount) internal pure returns (uint256) {
-        return (tokenAmount * 10 ** 12) / 10 ** 18;
+    function _convertTokensToETH(uint256 tokenAmount) internal view returns (uint256) {
+        uint256 tokenUnit = 10 ** ghostedToken.decimals();
+        return (tokenAmount * 10 ** 12) / tokenUnit;
     }
 }

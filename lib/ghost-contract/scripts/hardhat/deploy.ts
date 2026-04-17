@@ -10,7 +10,7 @@ async function main() {
   console.log(`Deploying with account: ${deployer.address}`);
 
   // Get account balance
-  const balance = await deployer.getBalance();
+  const balance = await deployer.provider.getBalance(deployer.address);
   console.log(`Account balance: ${ethers.formatEther(balance)} ETH`);
 
   // Deploy mock token contract first (for testing)
@@ -32,6 +32,11 @@ async function main() {
   await ghostProtocol.waitForDeployment();
   const contractAddress = await ghostProtocol.getAddress();
   console.log(`GhostProtocol deployed to: ${contractAddress}`);
+
+  console.log("\nFunding GhostProtocol with local test rewards...");
+  const rewardFunding = ethers.parseEther("250000");
+  await ghostedToken.transfer(contractAddress, rewardFunding);
+  console.log(`Transferred ${ethers.formatEther(rewardFunding)} GHOSTED to protocol`);
 
   // Save deployment info
   const deploymentInfo = {
