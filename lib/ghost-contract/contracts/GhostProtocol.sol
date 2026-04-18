@@ -94,6 +94,7 @@ contract GhostProtocol is ReentrancyGuard {
     event ProtocolCredibilityUpdated(address indexed account, uint256 previousScore, uint256 newScore, string reason);
     event ProtocolFunded(address indexed sender, uint256 amount);
     event ProtocolRevenueWithdrawn(address indexed treasury, uint256 amount);
+    event ProtocolTokensWithdrawn(address indexed treasury, uint256 amount);
     event StoryMadePublic(bytes32 indexed proofHash, address indexed submitter);
     event StoryUnlocked(bytes32 indexed proofHash, address indexed unlocker, uint256 cost, string method);
     event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
@@ -243,6 +244,11 @@ contract GhostProtocol is ReentrancyGuard {
         emit ProtocolRevenueWithdrawn(treasury, amount);
     }
 
+    function withdrawProtocolTokens(uint256 amount) external onlyOwner nonReentrant {
+        _safeTokenTransfer(treasury, amount);
+        emit ProtocolTokensWithdrawn(treasury, amount);
+    }
+
     function submitEvidence(
         bytes32 proofHash,
         uint256 severity,
@@ -268,7 +274,6 @@ contract GhostProtocol is ReentrancyGuard {
 
         if (!isProxy) {
             directEvidenceCount += 1;
-            truthAssertionCount += 1;
             ghostedReward = severity * 50 * 10 ** 18;
             if (ghostedReward > MAX_GHOSTED_PER_SUBMISSION) {
                 ghostedReward = MAX_GHOSTED_PER_SUBMISSION;
@@ -345,10 +350,6 @@ contract GhostProtocol is ReentrancyGuard {
             revert InsufficientCredibility(myCredibility, requiredCredibility);
         }
 
-        if (myCredibility < CREDIBILITY_UNLOCK_THRESHOLD) {
-            revert InsufficientCredibility(myCredibility, CREDIBILITY_UNLOCK_THRESHOLD);
-        }
-
         hasUnlockedStory[proofHash][msg.sender] = true;
 
         uint256 credibilityBoost = (requiredCredibility * 5) / 100;
@@ -361,6 +362,7 @@ contract GhostProtocol is ReentrancyGuard {
         if (_evidenceLog[proofHash].timestamp == 0) revert StoryDoesNotExist();
 
         _safeTokenTransferFrom(msg.sender, address(this), TRUTH_ASSERTION_STAKE);
+        truthAssertionCount += 1;
 
         _truthAssertions[proofHash].push(TruthAssertion({
             proofHash: proofHash,
