@@ -78,6 +78,7 @@ export type GhostEvidenceRecord = {
   isProxy: boolean;
   descriptionHash: Hex;
   dramaType: string;
+  contentCid: string;
   submitter: Address;
   ghostedRewarded: bigint;
 };
@@ -121,6 +122,7 @@ export type SubmitEvidenceInput = {
   severity: number;
   description: string;
   dramaType: string;
+  contentCid: string;
   isProxy: boolean;
 };
 
@@ -260,7 +262,7 @@ async function readEvidenceRecord(client: ReturnType<typeof createPublicClient>,
     abi: ghostProtocolAbi,
     functionName: "getEvidence",
     args: [proofHash],
-  }) as readonly [bigint, bigint, boolean, Hex, string, Address, bigint];
+  }) as readonly [bigint, bigint, boolean, Hex, string, string, Address, bigint];
 
   return {
     proofHash,
@@ -269,8 +271,9 @@ async function readEvidenceRecord(client: ReturnType<typeof createPublicClient>,
     isProxy: response[2],
     descriptionHash: response[3],
     dramaType: response[4],
-    submitter: response[5],
-    ghostedRewarded: response[6],
+    contentCid: response[5],
+    submitter: response[6],
+    ghostedRewarded: response[7],
   } satisfies GhostEvidenceRecord;
 }
 
@@ -414,7 +417,7 @@ export async function submitEvidenceTransaction(
     address: config.address,
     abi: ghostProtocolAbi,
     functionName: "submitEvidence",
-    args: [input.proofHash, BigInt(input.severity), input.description, input.dramaType, input.isProxy],
+    args: [input.proofHash, BigInt(input.severity), input.description, input.dramaType, input.contentCid, input.isProxy],
     value: ghostProtocolUiConstants.receiptFeeEth,
   });
 

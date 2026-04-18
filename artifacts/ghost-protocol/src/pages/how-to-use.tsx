@@ -45,24 +45,24 @@ export function HowToUse() {
           </div>
           <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
             <p className="text-muted-foreground leading-relaxed">
-              The contract currently exposes four major flows:
+              What you can do:
             </p>
             <ul className="space-y-3">
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Submit evidence</span> — direct submissions earn severity × {receiptRewardMultiplier.toLocaleString()} $GHOSTED, up to {maxGhostedPerSubmission.toLocaleString()}. Proxy submissions are recorded but earn nothing.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Log a receipt</span> — submit proof of being ghosted and earn $GHOSTED for direct evidence.</p>
               </li>
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Unlock stories</span> — use burn, ETH, or credibility to unlock receipt stories and pay the original submitter.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Unlock stories</span> — reveal the details behind a receipt using tokens, ETH, or your credibility score.</p>
               </li>
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Stake on truth</span> — put up 100 $GHOSTED on whether a receipt is real and wait for oracle resolution.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Stake on truth</span> — bet $GHOSTED on whether a receipt is real or fake.</p>
               </li>
               <li className="flex gap-3 items-start">
                 <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</div>
-                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Read live state</span> — the dashboard pulls counters, revenues, and recent evidence directly from the deployed contract.</p>
+                <p className="text-sm text-muted-foreground"><span className="text-white font-bold">Watch the feed</span> — see receipts land in real time on the dashboard.</p>
               </li>
             </ul>
           </div>
@@ -87,10 +87,10 @@ export function HowToUse() {
           />
           <MetricExplainer
             icon={<Lock className="w-5 h-5 text-primary" />}
-            name="DIRECT RECEIPT INDEX"
-            short="The contract's global direct-receipt counter"
-            description="The stats field named totalTruthAssertions increments when a direct receipt is submitted. It does not count per-story truth stakes. Those are read separately with getTruthAssertionCount(proofHash)."
-            range="If you want truth stakes on a specific receipt, look at the recent evidence cards instead."
+            name="TRUTH ASSERTIONS"
+            short="How many truth stakes have been placed globally"
+            description="The stats field named totalTruthAssertions increments when anyone calls assertTruth on a proof hash, not on receipt submission. Direct receipts are counted by the separate directEvidence counter."
+            range="Per-story truth stake counts are read with getTruthAssertionCount(proofHash)."
           />
           <MetricExplainer
             icon={<Wallet className="w-5 h-5 text-primary" />}
@@ -132,6 +132,11 @@ export function HowToUse() {
             icon="*"
           />
           <FlagExplainer
+            label="CONTENT CID"
+            meaning="An optional IPFS content identifier linking to off-chain evidence media. Stored directly in the evidence struct."
+            icon="@"
+          />
+          <FlagExplainer
             label="DRAMA TYPE + SUBMITTER + REWARD"
             meaning="Each record also stores the selected drama type string, whether it was proxy evidence, who submitted it, and how much $GHOSTED was paid."
             icon=">"
@@ -152,7 +157,7 @@ export function HowToUse() {
           <EventRow label="Protocol revenue retained" desc="70% stays in the contract and shows up as protocol revenue on the dashboard." />
           <EventRow label="Direct reward paid" desc={`If the receipt is direct, the submitter receives severity × ${receiptRewardMultiplier.toLocaleString()} $GHOSTED, capped at ${maxGhostedPerSubmission.toLocaleString()}.`} />
           <EventRow label="Story initialized" desc="A locked story is created with a base unlock price of 500 GHOSTED." />
-          <EventRow label="Events emitted" desc="EvidenceSubmitted and GhostingReceiptSubmitted are emitted on-chain." />
+          <EventRow label="Events emitted" desc="EvidenceSubmitted, GhostingReceiptSubmitted, and receipt-level events (TruthStakeReceipt, VindicationReceipt, HumiliationReceipt, ExposureReceipt, WhistleblowerReceipt) are emitted on-chain." />
         </div>
       </section>
 
@@ -178,7 +183,7 @@ export function HowToUse() {
           <Step
             number={3}
             title="Choose: Direct or Third Party"
-            desc="Direct evidence earns $GHOSTED and increments the global direct assertion counter. Proxy evidence is still stored on-chain but earns no token payout."
+            desc="Direct evidence earns $GHOSTED and increments the direct evidence counter. Proxy evidence is still stored on-chain but earns no token payout."
           />
           <Step
             number={4}
@@ -268,7 +273,7 @@ export function HowToUse() {
           {[
             { term: "Direct Evidence", def: `A receipt submission with isProxy = false. Earns severity × ${receiptRewardMultiplier.toLocaleString()} $GHOSTED up to the max cap of ${maxGhostedPerSubmission.toLocaleString()}.` },
             { term: "Proxy Evidence", def: "A stored receipt with isProxy = true. It is recorded on-chain but pays no direct reward." },
-            { term: "Direct Receipt Index", def: "The totalTruthAssertions value returned by getProtocolStats. It increments on direct receipt submission." },
+            { term: "Truth Assertions", def: "The totalTruthAssertions value returned by getProtocolStats. It increments when assertTruth is called, not on receipt submission." },
             { term: "Truth Stake", def: "A separate per-story stake created with assertTruth(proofHash, believesReal)." },
             { term: "Base Unlock Price", def: "The starting story price: 500 $GHOSTED." },
             { term: "Unlock Price Step", def: "Each paid unlock adds a flat 50 $GHOSTED until the story price reaches the 2,500 $GHOSTED cap." },

@@ -127,25 +127,13 @@ export function Landing() {
             </div>
             <div className="flex-1 relative">
               <div className="absolute inset-0 bg-primary/20 blur-[100px] rounded-full" />
-              <div className="relative bg-card border border-white/10 rounded-2xl p-8 shadow-2xl overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
-                <div className="space-y-6 font-mono text-sm">
-                  <div className="flex justify-between border-b border-white/10 pb-4">
-                    <span className="text-muted-foreground">contract deployment</span>
-                    <span className="text-primary">LIVE</span>
-                  </div>
-                  <div className="flex justify-between border-b border-white/10 pb-4">
-                    <span className="text-muted-foreground">proof hash uniqueness</span>
-                    <span className="text-primary">ENFORCED</span>
-                  </div>
-                  <div className="flex justify-between border-b border-white/10 pb-4">
-                    <span className="text-muted-foreground">base story unlock</span>
-                    <span className="text-primary">500 GHOSTED</span>
-                  </div>
-                  <div className="pt-4 text-center text-xs text-muted-foreground animate-pulse">
-                    TRUTH STAKE: 100 GHOSTED
-                  </div>
-                </div>
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+                <img
+                  src="/image0(4).jpeg"
+                  alt="GhostProtocol — Submit Evidence, Credibility Score, Truth Oracle, GHOSTED tokens"
+                  className="w-full h-auto object-cover"
+                  loading="lazy"
+                />
               </div>
             </div>
           </div>

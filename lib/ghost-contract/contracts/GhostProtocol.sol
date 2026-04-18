@@ -103,6 +103,42 @@ contract GhostProtocol is ReentrancyGuard {
     event UnlockPriceQuoteUpdated(uint256 previousQuoteWeiPerToken, uint256 newQuoteWeiPerToken, uint256 updatedAt);
     event UnlockPriceUpdated(bytes32 indexed proofHash, uint256 newPrice);
 
+    // ── Receipt hooks: on-chain proof of engagement ──
+    event TruthStakeReceipt(
+        address indexed staker,
+        bytes32 indexed proofHash,
+        bool believesReal,
+        uint256 stakeAmount,
+        uint256 globalAssertionNumber
+    );
+    event VindicationReceipt(
+        address indexed assertor,
+        bytes32 indexed proofHash,
+        uint256 reward,
+        uint256 currentStreak,
+        uint256 totalWins
+    );
+    event HumiliationReceipt(
+        address indexed assertor,
+        bytes32 indexed proofHash,
+        uint256 stakeLost,
+        uint256 burnedAmount,
+        uint256 submitterCompensation
+    );
+    event ExposureReceipt(
+        address indexed unlocker,
+        bytes32 indexed proofHash,
+        string method,
+        uint256 cost,
+        uint256 unlockNumber
+    );
+    event WhistleblowerReceipt(
+        address indexed submitter,
+        bytes32 indexed proofHash,
+        uint256 totalEarned,
+        uint256 timesUnlocked
+    );
+
     uint256 public constant BASE_UNLOCK_PRICE = 500 * 10 ** 18;
     uint256 public constant CREDIBILITY_UNLOCK_THRESHOLD = 1000 * 10 ** 18;
     uint256 public constant GHOSTING_RECEIPT_FEE = 0.0095 ether;
@@ -334,6 +370,7 @@ contract GhostProtocol is ReentrancyGuard {
 
         emit StoryUnlocked(proofHash, msg.sender, currentPrice, "BURN");
         emit UnlockPriceUpdated(proofHash, story.unlockPrice);
+        emit ExposureReceipt(msg.sender, proofHash, "BURN", currentPrice, story.timesUnlocked);
     }
 
     function unlockStoryByCredibility(bytes32 proofHash) external whenNotPaused {
@@ -356,6 +393,7 @@ contract GhostProtocol is ReentrancyGuard {
         _increaseProtocolCredibility(msg.sender, credibilityBoost, "CREDIBILITY_UNLOCK");
 
         emit StoryUnlocked(proofHash, msg.sender, 0, "CREDIBILITY");
+        emit ExposureReceipt(msg.sender, proofHash, "CREDIBILITY", 0, 0);
     }
 
     function assertTruth(bytes32 proofHash, bool believesReal) external whenNotPaused nonReentrant {
@@ -375,6 +413,7 @@ contract GhostProtocol is ReentrancyGuard {
         }));
 
         emit TruthAsserted(proofHash, msg.sender, believesReal, TRUTH_ASSERTION_STAKE);
+        emit TruthStakeReceipt(msg.sender, proofHash, believesReal, TRUTH_ASSERTION_STAKE, truthAssertionCount);
     }
 
     function resolveTruth(bytes32 proofHash, uint256 assertionIndex, bool isActuallyReal) external onlyOracle whenNotPaused nonReentrant {
@@ -392,6 +431,7 @@ contract GhostProtocol is ReentrancyGuard {
             truthWinStreak[assertion.assertor] += 1;
             totalTruthWins[assertion.assertor] += 1;
             _increaseProtocolCredibility(assertion.assertor, 100 * 10 ** 18, "TRUTH_WIN");
+            emit VindicationReceipt(assertion.assertor, proofHash, TRUTH_WIN_REWARD, truthWinStreak[assertion.assertor], totalTruthWins[assertion.assertor]);
         } else {
             LockedStory storage story = _ensureStoryInitialized(proofHash);
             uint256 halfStake = TRUTH_ASSERTION_STAKE / 2;
@@ -399,6 +439,7 @@ contract GhostProtocol is ReentrancyGuard {
             ghostedToken.burn(address(this), halfStake);
             totalGhostedBurned += halfStake;
             truthWinStreak[assertion.assertor] = 0;
+            emit HumiliationReceipt(assertion.assertor, proofHash, TRUTH_ASSERTION_STAKE, halfStake, halfStake);
         }
 
         emit TruthResolved(
@@ -418,6 +459,7 @@ contract GhostProtocol is ReentrancyGuard {
 
         story.isPublic = true;
         emit StoryMadePublic(proofHash, msg.sender);
+        emit WhistleblowerReceipt(msg.sender, proofHash, story.totalEarnedFromUnlocks, story.timesUnlocked);
     }
 
     function unlockStoryWithETH(bytes32 proofHash) external payable whenNotPaused nonReentrant {
@@ -444,6 +486,7 @@ contract GhostProtocol is ReentrancyGuard {
 
         emit StoryUnlocked(proofHash, msg.sender, currentPrice, "ETH");
         emit UnlockPriceUpdated(proofHash, story.unlockPrice);
+        emit ExposureReceipt(msg.sender, proofHash, "ETH", ethPrice, story.timesUnlocked);
     }
 
     function getProtocolStats()
