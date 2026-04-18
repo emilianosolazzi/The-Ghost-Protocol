@@ -14,8 +14,10 @@ import {
 import type { Hash, Hex } from "viem";
 import {
   ShieldAlert, FileText, Upload, Fingerprint, Activity,
-  AlertTriangle, CheckCircle2, Coins, Info, Copy, Database, ExternalLink
+  AlertTriangle, CheckCircle2, Coins, Info, Copy, Database, ExternalLink, ImagePlus, X, Loader2
 } from "lucide-react";
+import { usePinataUpload } from "@/hooks/use-pinata-upload";
+import { getIpfsUrl } from "@/lib/pinata";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,6 +43,7 @@ const formSchema = z.object({
   description: z.string().optional(),
   isProxy:     z.boolean().default(false),
   dramaType:   z.string().optional(),
+  contentCid:  z.string().default(""),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -125,6 +128,7 @@ export function Evidence() {
   const queryClient = useQueryClient();
   const { account, chainId } = useWallet();
   const { mutate: submitEvidence, isPending } = useSubmitEvidence();
+  const pinata = usePinataUpload();
   const [lastResult, setLastResult] = useState<{ reward: number; dramaLabel: string } | null>(null);
   const [localSubmissions, setLocalSubmissions] = useState<GhostSubmissionArchiveEntry[]>([]);
   const [remoteSubmissions, setRemoteSubmissions] = useState<GhostSubmissionArchiveEntry[]>([]);
@@ -181,7 +185,7 @@ export function Evidence() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { hash: "", weight: 50, description: "", isProxy: false, dramaType: "" },
+    defaultValues: { hash: "", weight: 50, description: "", isProxy: false, dramaType: "", contentCid: "" },
   });
 
   const watchWeight   = form.watch("weight");
@@ -230,6 +234,7 @@ export function Evidence() {
       severity: data.weight,
       description: data.description || "",
       dramaType: data.dramaType || "general",
+      contentCid: data.contentCid || "",
       isProxy: data.isProxy,
     }, {
       onSuccess: (transactionHash) => {
@@ -241,6 +246,7 @@ export function Evidence() {
           severity: data.weight,
           description: data.description?.trim() ?? "",
           dramaType: data.dramaType || "general",
+          contentCid: data.contentCid || "",
           isProxy: data.isProxy,
           reward: estimatedReward,
           chainId: chainId ?? null,
@@ -268,6 +274,7 @@ export function Evidence() {
           description: "Your evidence has been submitted. A review copy is saved below and will sync remotely when the archive API is reachable.",
         });
         form.reset();
+        pinata.reset();
         queryClient.invalidateQueries();
       },
       onError: (error) => {
@@ -574,9 +581,83 @@ export function Evidence() {
               )}
             />
 
+            {/* IPFS Evidence Upload */}
+            <div className="space-y-2">
+              <p className="font-mono text-xs text-muted-foreground flex items-center gap-2">
+                <ImagePlus className="w-3 h-3" /> ATTACH SCREENSHOT (OPTIONAL)
+              </p>
+
+              {pinata.state.status === "idle" && (
+                <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-white/15 bg-white/[0.02] cursor-pointer transition-colors hover:border-primary/40 hover:bg-primary/5">
+                  <ImagePlus className="w-6 h-6 text-muted-foreground" />
+                  <span className="font-mono text-xs text-muted-foreground">Drop or click — JPEG, PNG, WebP, GIF up to 10 MB</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const cid = await pinata.upload(file);
+                      if (cid) form.setValue("contentCid", cid);
+                    }}
+                  />
+                </label>
+              )}
+
+              {pinata.state.status === "uploading" && (
+                <div className="flex items-center gap-3 p-4 rounded-xl border border-primary/20 bg-primary/5">
+                  <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-xs font-bold text-primary">UPLOADING TO IPFS…</p>
+                    <p className="font-mono text-xs text-muted-foreground truncate">{pinata.state.file.name}</p>
+                  </div>
+                </div>
+              )}
+
+              {pinata.state.status === "success" && (
+                <div className="flex items-start gap-3 p-4 rounded-xl border border-primary/20 bg-primary/5">
+                  <img
+                    src={getIpfsUrl(pinata.state.cid)}
+                    alt="Uploaded evidence"
+                    className="w-16 h-16 rounded-lg object-cover border border-white/10"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-xs font-bold text-primary">PINNED TO IPFS</p>
+                    <p className="font-mono text-xs text-muted-foreground truncate mt-0.5">{pinata.state.cid}</p>
+                    <p className="font-mono text-xs text-muted-foreground truncate">{pinata.state.file.name}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { pinata.reset(); form.setValue("contentCid", ""); }}
+                    className="p-1 rounded-md text-muted-foreground hover:text-white transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {pinata.state.status === "error" && (
+                <div className="flex items-center gap-3 p-4 rounded-xl border border-destructive/20 bg-destructive/5">
+                  <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-mono text-xs font-bold text-destructive">UPLOAD FAILED</p>
+                    <p className="font-mono text-xs text-muted-foreground">{pinata.error}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={pinata.reset}
+                    className="font-mono text-xs text-muted-foreground hover:text-white transition-colors"
+                  >
+                    RETRY
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               type="submit"
-              disabled={isPending || isKnownProofHash}
+              disabled={isPending || isKnownProofHash || pinata.isPending}
               className="w-full h-14 mt-2 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold font-mono rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden"
             >
               {isPending ? (
@@ -678,6 +759,25 @@ export function Evidence() {
                         {submission.description || "No description text was entered for this submission."}
                       </p>
                     </div>
+
+                    {submission.contentCid && (
+                      <div className="space-y-1">
+                        <p className="font-mono text-xs text-muted-foreground">EVIDENCE ATTACHMENT</p>
+                        <a
+                          href={getIpfsUrl(submission.contentCid)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-block rounded-lg border border-primary/20 overflow-hidden hover:border-primary/40 transition-colors"
+                        >
+                          <img
+                            src={getIpfsUrl(submission.contentCid)}
+                            alt="Evidence"
+                            className="w-24 h-24 object-cover"
+                          />
+                        </a>
+                        <p className="font-mono text-xs text-muted-foreground truncate max-w-xs">{submission.contentCid}</p>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-xs">
                       <div className="rounded-md border border-white/10 bg-background/50 p-3">

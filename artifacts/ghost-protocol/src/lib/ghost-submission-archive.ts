@@ -8,6 +8,7 @@ export type GhostSubmissionArchiveEntry = {
   severity: number;
   description: string;
   dramaType: string;
+  contentCid: string;
   isProxy: boolean;
   reward: number;
   chainId: number | null;
@@ -65,6 +66,7 @@ export function normaliseGhostSubmissionArchiveEntry(value: unknown): GhostSubmi
     dramaType: typeof value.dramaType === "string" && value.dramaType.trim().length > 0
       ? value.dramaType.trim()
       : "general",
+    contentCid: typeof value.contentCid === "string" ? value.contentCid : "",
     isProxy: typeof value.isProxy === "boolean" ? value.isProxy : false,
     reward: rewardValue,
     chainId: typeof chainIdValue === "number" && Number.isFinite(chainIdValue)

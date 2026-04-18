@@ -152,6 +152,7 @@ export const ghostSubmissionArchiveTable = pgTable("ghost_submission_archive", {
   severity: integer("severity").notNull(),
   description: text("description").notNull().default(""),
   dramaType: text("drama_type").notNull().default("general"),
+  contentCid: text("content_cid").notNull().default(""),
   isProxy: boolean("is_proxy").notNull().default(false),
   reward: real("reward").notNull().default(0),
   chainId: integer("chain_id"),

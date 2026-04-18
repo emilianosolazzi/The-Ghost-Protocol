@@ -42,6 +42,7 @@ router.get("/ghost-archive/submissions", async (req, res): Promise<void> => {
       severity: row.severity,
       description: row.description,
       dramaType: row.dramaType,
+      contentCid: row.contentCid,
       isProxy: row.isProxy,
       reward: row.reward,
       chainId: row.chainId,
@@ -60,6 +61,7 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
   const dramaType = typeof req.body.dramaType === "string" && req.body.dramaType.trim().length > 0
     ? req.body.dramaType.trim()
     : "general";
+  const contentCid = typeof req.body.contentCid === "string" ? req.body.contentCid : "";
   const isProxy = typeof req.body.isProxy === "boolean" ? req.body.isProxy : false;
   const chainId = req.body.chainId === null || req.body.chainId === undefined
     ? null
@@ -99,6 +101,7 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
       severity,
       description,
       dramaType,
+      contentCid,
       isProxy,
       reward,
       chainId,
@@ -112,6 +115,7 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
         severity,
         description,
         dramaType,
+        contentCid,
         isProxy,
         reward,
         chainId,
