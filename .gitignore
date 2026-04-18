@@ -46,3 +46,4 @@ yarn-error.log
 # Cursor / GitHub generated rules
 .cursor/
 .github/instructions/
+lib/ghost-contract/artifacts/
