@@ -2,6 +2,10 @@ import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
 import { verifyMessage, type Hex } from "viem";
 import { db, ghostSubmissionArchiveTable } from "@workspace/db";
+import {
+  GhostArchiveVerificationError,
+  verifyGhostArchiveSubmissionTransaction,
+} from "../lib/ghost-archive-verifier";
 
 const router: IRouter = Router();
 
@@ -168,6 +172,29 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
     return;
   }
 
+  let verifiedArchive;
+  try {
+    verifiedArchive = await verifyGhostArchiveSubmissionTransaction({
+      submitter,
+      proofHash,
+      txHash,
+      severity,
+      description,
+      dramaType,
+      contentCid,
+      isProxy,
+      reward,
+      chainId,
+    });
+  } catch (error) {
+    if (error instanceof GhostArchiveVerificationError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+
+    throw error;
+  }
+
   const [stored] = await db
     .insert(ghostSubmissionArchiveTable)
     .values({
@@ -179,8 +206,8 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
       dramaType,
       contentCid,
       isProxy,
-      reward,
-      chainId,
+      reward: verifiedArchive.reward,
+      chainId: verifiedArchive.chainId,
       submittedAt,
     } as any)
     .onConflictDoUpdate({
@@ -193,8 +220,8 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
         dramaType,
         contentCid,
         isProxy,
-        reward,
-        chainId,
+        reward: verifiedArchive.reward,
+        chainId: verifiedArchive.chainId,
         submittedAt,
       } as any,
     })
