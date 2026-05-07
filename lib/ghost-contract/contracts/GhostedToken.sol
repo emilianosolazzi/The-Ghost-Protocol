@@ -11,8 +11,9 @@ import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2St
  * @notice The native ERC-20 for GhostProtocol.
  *
  *  Supply: 1,000,000,000 (1 B) — fixed, no minting after deploy.
- *  Burn:   The GhostProtocol contract can burn tokens from its own balance
- *          (unlock-by-burn, wrong truth-stake slashing).
+ *  Burn:   The registered GhostProtocol contract can burn tokens from any
+ *          address. This is an explicit trust assumption used for protocol
+ *          slashing and burn-based mechanics.
  *  Cred:   The protocol can write on-chain credibility scores per holder.
  *  Permit: EIP-2612 gasless approvals built in.
  *
@@ -21,7 +22,6 @@ import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2St
  */
 contract GhostedToken is ERC20, ERC20Burnable, ERC20Permit, Ownable2Step {
     // ── Errors ────────────────────────────────────────────────────────────
-    error InvalidAddress();
     error NotProtocol();
     error ProtocolAlreadyLocked();
 
@@ -43,7 +43,6 @@ contract GhostedToken is ERC20, ERC20Burnable, ERC20Permit, Ownable2Step {
         ERC20Permit("GHOSTED")
         Ownable(initialHolder)
     {
-        if (initialHolder == address(0)) revert InvalidAddress();
         _mint(initialHolder, TOTAL_SUPPLY);
     }
 
@@ -54,7 +53,7 @@ contract GhostedToken is ERC20, ERC20Burnable, ERC20Permit, Ownable2Step {
      */
     function setProtocol(address newProtocol) external onlyOwner {
         if (protocolLocked) revert ProtocolAlreadyLocked();
-        if (newProtocol == address(0)) revert InvalidAddress();
+        if (newProtocol == address(0)) revert OwnableInvalidOwner(address(0));
         protocol = newProtocol;
         emit ProtocolSet(newProtocol);
     }
@@ -63,7 +62,8 @@ contract GhostedToken is ERC20, ERC20Burnable, ERC20Permit, Ownable2Step {
      * @notice Permanently lock the protocol address. Irreversible.
      */
     function lockProtocol() external onlyOwner {
-        if (protocol == address(0)) revert InvalidAddress();
+        if (protocolLocked) revert ProtocolAlreadyLocked();
+        if (protocol == address(0)) revert OwnableInvalidOwner(address(0));
         protocolLocked = true;
         emit ProtocolLocked(protocol);
     }

@@ -888,6 +888,11 @@ export const ghostProtocolAbi = [
         "type": "string"
       },
       {
+        "internalType": "string",
+        "name": "contentCid",
+        "type": "string"
+      },
+      {
         "internalType": "address",
         "name": "submitter",
         "type": "address"
@@ -1539,6 +1544,11 @@ export const ghostProtocolAbi = [
       {
         "internalType": "string",
         "name": "dramaType",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "contentCid",
         "type": "string"
       },
       {

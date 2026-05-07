@@ -257,6 +257,49 @@ describe("GhostProtocol: Unlock Mechanics", function () {
         "InsufficientCredibility"
       );
     });
+
+    it("should scale required credibility with severity", async function () {
+      const { ghostProtocol, ghostedToken, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(
+        ghostProtocol,
+        user1,
+        302,
+        80
+      );
+
+      await ghostedToken.seedCredibilityScore(
+        user2.address,
+        ethers.parseEther("1500")
+      );
+
+      await expect(
+        ghostProtocol.connect(user2).unlockStoryByCredibility(proofHash)
+      ).to.be.revertedWithCustomError(
+        ghostProtocol,
+        "InsufficientCredibility"
+      );
+    });
+
+    it("should unlock high-severity stories once scaled credibility is met", async function () {
+      const { ghostProtocol, ghostedToken, user1, user2 } = await deployFixtures();
+      const proofHash = await submitEvidenceHelper(
+        ghostProtocol,
+        user1,
+        303,
+        80
+      );
+
+      await ghostedToken.seedCredibilityScore(
+        user2.address,
+        ethers.parseEther("2000")
+      );
+
+      await expect(
+        ghostProtocol.connect(user2).unlockStoryByCredibility(proofHash)
+      )
+        .to.emit(ghostProtocol, "StoryUnlocked")
+        .withArgs(proofHash, user2.address, 0, "CREDIBILITY");
+    });
   });
 
   describe("makeStoryPublic", function () {

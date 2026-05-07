@@ -50,10 +50,13 @@ contract GhostProtocol is ReentrancyGuard {
     error AlreadyUnlocked();
     error ContractPaused();
     error EvidenceAlreadyExists();
+    error EthTransferFailed();
     error InsufficientCredibility(uint256 currentCredibility, uint256 requiredCredibility);
     error InsufficientEth(uint256 requiredAmount, uint256 receivedAmount);
     error InvalidAddress();
     error InvalidAssertionIndex();
+    error InvalidContentCidLength(uint256 providedLength, uint256 maxLength);
+    error InvalidDramaTypeLength(uint256 providedLength, uint256 maxLength);
     error NotPendingOwner();
     error NotPricingOracle();
     error InvalidProofHash();
@@ -68,7 +71,6 @@ contract GhostProtocol is ReentrancyGuard {
     error StoryDoesNotExist();
     error StoryIsPublic();
     error SubmitterNotRecorded();
-    error TokenTransferFailed();
     error UnlockPriceQuoteNotSet();
 
     event EvidenceSubmitted(
@@ -144,9 +146,12 @@ contract GhostProtocol is ReentrancyGuard {
     uint256 public constant GHOSTING_RECEIPT_FEE = 0.0095 ether;
     uint256 public constant MAX_UNLOCK_PRICE = 2_500 * 10 ** 18;
     uint256 public constant MAX_GHOSTED_PER_SUBMISSION = 5_000 * 10 ** 18;
+    uint256 public constant MAX_CONTENT_CID_LENGTH = 128;
+    uint256 public constant MAX_DRAMA_TYPE_LENGTH = 32;
     uint256 public constant MAX_UNLOCK_PRICE_QUOTE_AGE = 1 days;
     uint256 public constant TREASURY_SPLIT_BPS = 3_000;
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant SEVERITY_CREDIBILITY_MULTIPLIER = 25 * 10 ** 18;
     uint256 public constant TRUTH_ASSERTION_STAKE = 100 * 10 ** 18;
     uint256 public constant TRUTH_WIN_REWARD = 200 * 10 ** 18;
     uint256 public constant UNLOCK_PRICE_STEP = 50 * 10 ** 18;
@@ -295,6 +300,7 @@ contract GhostProtocol is ReentrancyGuard {
     ) external payable whenNotPaused nonReentrant {
         if (proofHash == bytes32(0)) revert InvalidProofHash();
         if (severity == 0 || severity > 100) revert InvalidSeverity();
+        _validateEvidenceStrings(dramaType, contentCid);
         if (_evidenceLog[proofHash].timestamp != 0) revert EvidenceAlreadyExists();
         if (msg.value < GHOSTING_RECEIPT_FEE) revert InsufficientEth(GHOSTING_RECEIPT_FEE, msg.value);
 
@@ -685,6 +691,19 @@ contract GhostProtocol is ReentrancyGuard {
         story.isPublic = false;
     }
 
+    function _validateEvidenceStrings(string calldata dramaType, string calldata contentCid) internal pure {
+        uint256 dramaTypeLength = bytes(dramaType).length;
+        uint256 contentCidLength = bytes(contentCid).length;
+
+        if (dramaTypeLength > MAX_DRAMA_TYPE_LENGTH) {
+            revert InvalidDramaTypeLength(dramaTypeLength, MAX_DRAMA_TYPE_LENGTH);
+        }
+
+        if (contentCidLength > MAX_CONTENT_CID_LENGTH) {
+            revert InvalidContentCidLength(contentCidLength, MAX_CONTENT_CID_LENGTH);
+        }
+    }
+
     function _safeTokenTransfer(address to, uint256 amount) internal {
         IERC20(address(ghostedToken)).safeTransfer(to, amount);
     }
@@ -695,7 +714,7 @@ contract GhostProtocol is ReentrancyGuard {
 
     function _safeTransferETH(address to, uint256 amount) internal {
         (bool success, ) = to.call{value: amount}("");
-        if (!success) revert TokenTransferFailed();
+        if (!success) revert EthTransferFailed();
     }
 
     function _effectiveCredibility(address account) internal view returns (uint256) {
@@ -719,7 +738,7 @@ contract GhostProtocol is ReentrancyGuard {
     }
 
     function _requiredCredibilityFor(bytes32 proofHash) internal view returns (uint256) {
-        uint256 severityRequirement = _evidenceLog[proofHash].weight * 10 ** 16;
+        uint256 severityRequirement = _evidenceLog[proofHash].weight * SEVERITY_CREDIBILITY_MULTIPLIER;
         return severityRequirement > CREDIBILITY_UNLOCK_THRESHOLD
             ? severityRequirement
             : CREDIBILITY_UNLOCK_THRESHOLD;

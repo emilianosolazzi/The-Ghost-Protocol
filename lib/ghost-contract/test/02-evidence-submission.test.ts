@@ -35,10 +35,11 @@ describe("GhostProtocol: Evidence Submission", function () {
       const proofHash = generateProofHash(2);
       const severity = 20;
       const dramaType = generateDramaType(1);
+      const contentCid = "bafybeigdyrzt5xk4q3j7z5m6h6c7q4m2n2kq5n6m4y4g5j3q2s6c7d8e9a";
 
       await ghostProtocol
         .connect(user1)
-        .submitEvidence(proofHash, severity, "desc", dramaType, "", false, {
+        .submitEvidence(proofHash, severity, "desc", dramaType, contentCid, false, {
           value: RECEIPT_FEE,
         });
 
@@ -48,6 +49,7 @@ describe("GhostProtocol: Evidence Submission", function () {
       expect(evidence.isProxy).to.equal(false);
       expect(evidence.submitter).to.equal(user1.address);
       expect(evidence.dramaType).to.equal(dramaType);
+      expect(evidence.contentCid).to.equal(contentCid);
 
       const expectedReward = BigInt(severity) * 50n * 10n ** 18n;
       expect(evidence.ghostedRewarded).to.equal(expectedReward);
@@ -272,6 +274,32 @@ describe("GhostProtocol: Evidence Submission", function () {
             value: RECEIPT_FEE,
           })
       ).to.be.revertedWithCustomError(ghostProtocol, "ContractPaused");
+    });
+
+    it("should revert with InvalidDramaTypeLength when drama type is too long", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+      const dramaType = "x".repeat(33);
+
+      await expect(
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(generateProofHash(36), 10, "desc", dramaType, "", false, {
+            value: RECEIPT_FEE,
+          })
+      ).to.be.revertedWithCustomError(ghostProtocol, "InvalidDramaTypeLength");
+    });
+
+    it("should revert with InvalidContentCidLength when content CID is too long", async function () {
+      const { ghostProtocol, user1 } = await deployFixtures();
+      const contentCid = "b".repeat(129);
+
+      await expect(
+        ghostProtocol
+          .connect(user1)
+          .submitEvidence(generateProofHash(37), 10, "desc", "crypto", contentCid, false, {
+            value: RECEIPT_FEE,
+          })
+      ).to.be.revertedWithCustomError(ghostProtocol, "InvalidContentCidLength");
     });
 
     it("should refund overpayment", async function () {
