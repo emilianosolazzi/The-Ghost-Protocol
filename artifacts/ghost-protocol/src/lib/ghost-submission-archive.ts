@@ -1,10 +1,25 @@
-import { getAddress, isAddress, type Address, type Hash, type Hex } from "viem";
+import { getAddress, isAddress, type Address, type Hash, type Hex, type WalletClient } from "viem";
 import { getGhostProtocolConfig } from "@/lib/ghost-protocol-config";
 
 export type GhostSubmissionArchiveEntry = {
   submitter: Address;
   proofHash: Hex;
   txHash: Hash;
+  severity: number;
+  description: string;
+  dramaType: string;
+  contentCid: string;
+  isProxy: boolean;
+  reward: number;
+  chainId: number | null;
+  submittedAt: number;
+};
+
+type GhostSubmissionArchivePayload = {
+  version: 1;
+  submitter: string;
+  proofHash: string;
+  txHash: string;
   severity: number;
   description: string;
   dramaType: string;
@@ -76,6 +91,27 @@ export function normaliseGhostSubmissionArchiveEntry(value: unknown): GhostSubmi
   };
 }
 
+function canonicaliseGhostSubmissionArchiveEntry(entry: GhostSubmissionArchiveEntry): GhostSubmissionArchivePayload {
+  return {
+    version: 1,
+    submitter: entry.submitter.toLowerCase(),
+    proofHash: entry.proofHash.toLowerCase(),
+    txHash: entry.txHash.toLowerCase(),
+    severity: Math.trunc(entry.severity),
+    description: entry.description,
+    dramaType: entry.dramaType.trim().length > 0 ? entry.dramaType.trim() : "general",
+    contentCid: entry.contentCid.trim(),
+    isProxy: entry.isProxy,
+    reward: entry.reward,
+    chainId: entry.chainId === null ? null : Math.trunc(entry.chainId),
+    submittedAt: Math.trunc(entry.submittedAt),
+  };
+}
+
+export function buildGhostSubmissionArchiveMessage(entry: GhostSubmissionArchiveEntry) {
+  return `GhostProtocol archive submission\n${JSON.stringify(canonicaliseGhostSubmissionArchiveEntry(entry))}`;
+}
+
 function getGhostArchiveApiUrl() {
   const configuredUrl = import.meta.env.VITE_GHOST_ARCHIVE_API_URL?.trim();
   if (configuredUrl) {
@@ -113,13 +149,25 @@ export async function fetchGhostSubmissionArchive(submitter: Address) {
     .filter((entry): entry is GhostSubmissionArchiveEntry => entry !== null);
 }
 
-export async function saveGhostSubmissionArchive(entry: GhostSubmissionArchiveEntry) {
+export async function saveGhostSubmissionArchive(
+  entry: GhostSubmissionArchiveEntry,
+  walletClient: WalletClient,
+) {
+  const payload = canonicaliseGhostSubmissionArchiveEntry(entry);
+  const signature = await walletClient.signMessage({
+    account: entry.submitter,
+    message: buildGhostSubmissionArchiveMessage(entry),
+  });
+
   const response = await fetch(`${getGhostArchiveApiUrl()}/submissions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(entry),
+    body: JSON.stringify({
+      ...payload,
+      signature,
+    }),
   });
 
   if (!response.ok) {

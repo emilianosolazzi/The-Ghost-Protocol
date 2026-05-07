@@ -126,7 +126,7 @@ function mergeSubmissionRecords(...groups: GhostSubmissionArchiveEntry[][]) {
 export function Evidence() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { account, chainId } = useWallet();
+  const { account, chainId, getWalletClient } = useWallet();
   const { mutate: submitEvidence, isPending } = useSubmitEvidence();
   const pinata = usePinataUpload();
   const [lastResult, setLastResult] = useState<{ reward: number; dramaLabel: string } | null>(null);
@@ -258,7 +258,7 @@ export function Evidence() {
         setLocalSubmissions(nextLocalSubmissions);
         setLastResult({ reward: estimatedReward, dramaLabel });
 
-        void saveGhostSubmissionArchive(nextEntry)
+        void saveGhostSubmissionArchive(nextEntry, getWalletClient())
           .then(() => {
             setRemoteSubmissions((currentEntries) => mergeSubmissionRecords(currentEntries, [nextEntry]));
             setArchiveStatus("ready");

@@ -259,7 +259,7 @@ export async function readProtocolStats(): Promise<GhostProtocolStats> {
 async function readEvidenceRecord(client: ReturnType<typeof createPublicClient>, address: Address, proofHash: Hex) {
   const response = await client.readContract({
     address,
-    abi: ghostProtocolAbi,
+    abi: ghostProtocolAbi as any,
     functionName: "getEvidence",
     args: [proofHash],
   }) as readonly [bigint, bigint, boolean, Hex, string, string, Address, bigint];
@@ -415,7 +415,7 @@ export async function submitEvidenceTransaction(
     account,
     chain,
     address: config.address,
-    abi: ghostProtocolAbi,
+    abi: ghostProtocolAbi as any,
     functionName: "submitEvidence",
     args: [input.proofHash, BigInt(input.severity), input.description, input.dramaType, input.contentCid, input.isProxy],
     value: ghostProtocolUiConstants.receiptFeeEth,

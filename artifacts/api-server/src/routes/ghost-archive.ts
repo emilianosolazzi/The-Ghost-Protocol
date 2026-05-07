@@ -1,11 +1,27 @@
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
+import { verifyMessage, type Hex } from "viem";
 import { db, ghostSubmissionArchiveTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
 const addressPattern = /^0x[a-fA-F0-9]{40}$/;
 const hashPattern = /^0x[a-fA-F0-9]{64}$/;
+const signaturePattern = /^0x[a-fA-F0-9]{130}$/;
+
+type GhostSubmissionArchiveRow = {
+  submitterAddress: string;
+  proofHash: string;
+  txHash: string;
+  severity: number;
+  description: string;
+  dramaType: string;
+  contentCid?: string;
+  isProxy: boolean;
+  reward: number;
+  chainId: number | null;
+  submittedAt: Date;
+};
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -19,6 +35,39 @@ function parseHash(value: unknown) {
   return typeof value === "string" && hashPattern.test(value) ? value : null;
 }
 
+function parseSignature(value: unknown) {
+  return typeof value === "string" && signaturePattern.test(value) ? (value as Hex) : null;
+}
+
+function buildGhostSubmissionArchiveMessage(entry: {
+  submitter: string;
+  proofHash: string;
+  txHash: string;
+  severity: number;
+  description: string;
+  dramaType: string;
+  contentCid: string;
+  isProxy: boolean;
+  reward: number;
+  chainId: number | null;
+  submittedAt: number;
+}) {
+  return `GhostProtocol archive submission\n${JSON.stringify({
+    version: 1,
+    submitter: entry.submitter,
+    proofHash: entry.proofHash,
+    txHash: entry.txHash,
+    severity: entry.severity,
+    description: entry.description,
+    dramaType: entry.dramaType,
+    contentCid: entry.contentCid,
+    isProxy: entry.isProxy,
+    reward: entry.reward,
+    chainId: entry.chainId,
+    submittedAt: entry.submittedAt,
+  })}`;
+}
+
 router.get("/ghost-archive/submissions", async (req, res): Promise<void> => {
   const submitter = parseSubmitter(req.query.submitter);
 
@@ -27,7 +76,7 @@ router.get("/ghost-archive/submissions", async (req, res): Promise<void> => {
     return;
   }
 
-  const rows = await db
+  const rows: GhostSubmissionArchiveRow[] = await db
     .select()
     .from(ghostSubmissionArchiveTable)
     .where(eq(ghostSubmissionArchiveTable.submitterAddress, submitter))
@@ -42,7 +91,7 @@ router.get("/ghost-archive/submissions", async (req, res): Promise<void> => {
       severity: row.severity,
       description: row.description,
       dramaType: row.dramaType,
-      contentCid: row.contentCid,
+      contentCid: row.contentCid ?? "",
       isProxy: row.isProxy,
       reward: row.reward,
       chainId: row.chainId,
@@ -55,6 +104,7 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
   const submitter = parseSubmitter(req.body.submitter);
   const proofHash = parseHash(req.body.proofHash);
   const txHash = parseHash(req.body.txHash);
+  const signature = parseSignature(req.body.signature);
   const severity = isFiniteNumber(req.body.severity) ? Math.trunc(req.body.severity) : null;
   const reward = isFiniteNumber(req.body.reward) ? req.body.reward : null;
   const description = typeof req.body.description === "string" ? req.body.description : "";
@@ -72,8 +122,8 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
     ? new Date(req.body.submittedAt)
     : new Date();
 
-  if (!submitter || !proofHash || !txHash) {
-    res.status(400).json({ error: "submitter, proofHash, and txHash must be valid hex values." });
+  if (!submitter || !proofHash || !txHash || !signature) {
+    res.status(400).json({ error: "submitter, proofHash, txHash, and signature must be valid hex values." });
     return;
   }
 
@@ -92,6 +142,32 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
     return;
   }
 
+  const submittedAtMs = submittedAt.getTime();
+  const archiveMessage = buildGhostSubmissionArchiveMessage({
+    submitter,
+    proofHash,
+    txHash,
+    severity,
+    description,
+    dramaType,
+    contentCid,
+    isProxy,
+    reward,
+    chainId,
+    submittedAt: submittedAtMs,
+  });
+
+  const isValidSignature = await verifyMessage({
+    address: submitter as `0x${string}`,
+    message: archiveMessage,
+    signature,
+  });
+
+  if (!isValidSignature) {
+    res.status(401).json({ error: "Archive signature verification failed." });
+    return;
+  }
+
   const [stored] = await db
     .insert(ghostSubmissionArchiveTable)
     .values({
@@ -106,7 +182,7 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
       reward,
       chainId,
       submittedAt,
-    })
+    } as any)
     .onConflictDoUpdate({
       target: ghostSubmissionArchiveTable.txHash,
       set: {
@@ -120,9 +196,9 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
         reward,
         chainId,
         submittedAt,
-      },
+      } as any,
     })
-    .returning();
+    .returning() as unknown as GhostSubmissionArchiveRow[];
 
   res.status(201).json({
     submission: {
@@ -135,6 +211,7 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
       isProxy: stored.isProxy,
       reward: stored.reward,
       chainId: stored.chainId,
+      contentCid: stored.contentCid ?? "",
       submittedAt: stored.submittedAt.getTime(),
     },
   });

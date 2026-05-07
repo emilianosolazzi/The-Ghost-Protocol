@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
 import { db, ghostStateTable, ghostEventsTable, ghostEvidenceTable } from "@workspace/db";
@@ -11,6 +12,7 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+const SYSTEM_SUBMITTER = "offchain-simulator";
 
 // ─── Contract Constants ──────────────────────────────────────────────────────
 const TOTAL_SUPPLY        = 1_000_000_000;
@@ -40,6 +42,26 @@ export const DRAMA_TYPES = [
   { id: "double_text",       label: "Double Text Ignored", emoji: "🗓️", desc: "You texted again. Still nothing." },
 ];
 
+function createSyntheticTxHash(seed: string) {
+  return `0x${createHash("sha256").update(seed).digest("hex")}`;
+}
+
+function createGhostEvent(
+  type: keyof typeof GHOST_MESSAGES,
+  message: string,
+  value?: number,
+  proofHash?: string,
+) {
+  return {
+    type,
+    message,
+    value,
+    proofHash: proofHash ?? null,
+    address: SYSTEM_SUBMITTER,
+    txHash: createSyntheticTxHash(`${type}:${proofHash ?? "global"}:${message}:${Date.now()}:${Math.random()}`),
+  };
+}
+
 async function ensureGhostState() {
   const rows = await db.select().from(ghostStateTable).limit(1);
   if (rows.length === 0) {
@@ -56,7 +78,7 @@ async function ensureGhostState() {
       evidenceCounter: 3,
       truthAssertionCount: 2,
       emotionalDebt: 12.4,
-      totalRewardsPaid: 13,
+      totalGhostedRewarded: 13,
       totalRevenueCollected: 0.03,
       totalTreasuryDistributed: 0.009,
       scoreYou: 72,
@@ -104,7 +126,7 @@ router.get("/ghost/state", async (req, res): Promise<void> => {
     evidenceCounter: state.evidenceCounter,
     truthAssertionCount: state.truthAssertionCount ?? 0,
     emotionalDebt: newEmotionalDebt,
-    totalRewardsPaid: state.totalRewardsPaid,
+    totalRewardsPaid: state.totalGhostedRewarded,
     isQuarantined: newOmega > 0.5,
     scoreYou: state.scoreYou,
     scoreHer: state.scoreHer,
@@ -193,11 +215,7 @@ router.get("/ghost/timeline", async (_req, res): Promise<void> => {
 
   if (dbEvents.length < 5) {
     const types = ["DriftUpdated", "PhiUpdated", "EvidenceAdded", "TruthAssertion", "Locked", "GhostGained"] as const;
-    const seedEvents = types.map((type) => ({
-      type,
-      message: GHOST_MESSAGES[type][0],
-      value: Math.random() * 10,
-    }));
+    const seedEvents = types.map((type) => createGhostEvent(type, GHOST_MESSAGES[type][0], Math.random() * 10));
     await db.insert(ghostEventsTable).values(seedEvents).onConflictDoNothing();
     const freshEvents = await db.select().from(ghostEventsTable)
       .orderBy(desc(ghostEventsTable.createdAt))
@@ -252,7 +270,7 @@ router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
 
   // Duplicate check — each proof hash submittable only once
   const existing = await db.select().from(ghostEvidenceTable)
-    .where(eq(ghostEvidenceTable.hash, hash)).limit(1);
+    .where(eq(ghostEvidenceTable.proofHash, hash)).limit(1);
   if (existing.length > 0) {
     res.status(400).json({ error: "Receipt already on record — each proof hash can only be submitted once. Generate a fresh hash." });
     return;
@@ -300,9 +318,13 @@ router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
 
   const newRevenueCollected = (state.totalRevenueCollected ?? 0) + feePaid;
   const newTreasuryDistributed = (state.totalTreasuryDistributed ?? 0) + treasuryCut;
+  const newDirectEvidenceCount = (state.directEvidenceCount ?? 0) + (isProxy ? 0 : 1);
+  const newProxyEvidenceCount = (state.proxyEvidenceCount ?? 0) + (isProxy ? 1 : 0);
+  const newTotalGhostedRewarded = (state.totalGhostedRewarded ?? 0) + ghostedReward;
 
   await db.insert(ghostEvidenceTable).values({
-    hash,
+    proofHash: hash,
+    submitter: SYSTEM_SUBMITTER,
     weight,
     description,
     dramaType: dramaType ?? null,
@@ -313,42 +335,50 @@ router.post("/ghost/submit-evidence", async (req, res): Promise<void> => {
   await db.update(ghostStateTable)
     .set({
       evidenceCounter: newEvidenceCounter,
+      directEvidenceCount: newDirectEvidenceCount,
+      proxyEvidenceCount: newProxyEvidenceCount,
       truthAssertionCount: newTruthAssertionCount,
       emotionalDebt: newEmotionalDebt,
       zeta: newZeta,
+      totalGhostedRewarded: newTotalGhostedRewarded,
       totalRevenueCollected: newRevenueCollected,
       totalTreasuryDistributed: newTreasuryDistributed,
     })
     .where(eq(ghostStateTable.id, state.id));
 
-  await db.insert(ghostEventsTable).values({
-    type: "EvidenceAdded",
-    message: eventMessage,
-    value: zetaDelta,
-  });
+  await db.insert(ghostEventsTable).values(
+    createGhostEvent("EvidenceAdded", eventMessage, zetaDelta, hash),
+  );
 
   if (!isProxy) {
-    await db.insert(ghostEventsTable).values({
-      type: "TruthAssertion",
-      message: `Truth assertion #${newTruthAssertionCount} — verified direct receipt on chain`,
-      value: ghostedReward,
-    });
+    await db.insert(ghostEventsTable).values(
+      createGhostEvent(
+        "TruthAssertion",
+        `Truth assertion #${newTruthAssertionCount} — verified direct receipt on chain`,
+        ghostedReward,
+        hash,
+      ),
+    );
   }
 
   // Milestone events
   if (gaslightUnlocked && state.evidenceCounter <= DENIAL_THRESHOLD) {
-    await db.insert(ghostEventsTable).values({
-      type: "GhostGained",
-      message: "10+ receipts logged — gaslight override unlocked. Emotional debt now reducible.",
-      value: 0,
-    });
+    await db.insert(ghostEventsTable).values(
+      createGhostEvent(
+        "GhostGained",
+        "10+ receipts logged — gaslight override unlocked. Emotional debt now reducible.",
+        0,
+      ),
+    );
   }
   if (forkReady && state.evidenceCounter <= FORK_THRESHOLD) {
-    await db.insert(ghostEventsTable).values({
-      type: "Forked",
-      message: "20+ receipts + fully bounced — fork threshold reached. 10 ETH reward unlocked.",
-      value: FORK_REWARD_ETH,
-    });
+    await db.insert(ghostEventsTable).values(
+      createGhostEvent(
+        "Forked",
+        "20+ receipts + fully bounced — fork threshold reached. 10 ETH reward unlocked.",
+        FORK_REWARD_ETH,
+      ),
+    );
   }
 
   let msg = isProxy
