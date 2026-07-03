@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type NextFunction } from "express";
 import { desc, eq } from "drizzle-orm";
 import { verifyMessage, type Hex } from "viem";
 import { db, ghostSubmissionArchiveTable } from "@workspace/db";
@@ -13,19 +13,7 @@ const addressPattern = /^0x[a-fA-F0-9]{40}$/;
 const hashPattern = /^0x[a-fA-F0-9]{64}$/;
 const signaturePattern = /^0x[a-fA-F0-9]{130}$/;
 
-type GhostSubmissionArchiveRow = {
-  submitterAddress: string;
-  proofHash: string;
-  txHash: string;
-  severity: number;
-  description: string;
-  dramaType: string;
-  contentCid?: string;
-  isProxy: boolean;
-  reward: number;
-  chainId: number | null;
-  submittedAt: Date;
-};
+type GhostSubmissionArchiveRow = typeof ghostSubmissionArchiveTable.$inferSelect;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -104,7 +92,7 @@ router.get("/ghost-archive/submissions", async (req, res): Promise<void> => {
   });
 });
 
-router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
+router.post("/ghost-archive/submissions", async (req, res, next: NextFunction): Promise<void> => {
   const submitter = parseSubmitter(req.body.submitter);
   const proofHash = parseHash(req.body.proofHash);
   const txHash = parseHash(req.body.txHash);
@@ -192,40 +180,34 @@ router.post("/ghost-archive/submissions", async (req, res): Promise<void> => {
       return;
     }
 
-    throw error;
+    next(error);
+    return;
   }
+
+  const upsertPayload = {
+    submitterAddress: submitter,
+    proofHash,
+    severity,
+    description,
+    dramaType,
+    contentCid,
+    isProxy,
+    reward: verifiedArchive.reward,
+    chainId: verifiedArchive.chainId,
+    submittedAt,
+  } satisfies Omit<typeof ghostSubmissionArchiveTable.$inferInsert, "txHash">;
 
   const [stored] = await db
     .insert(ghostSubmissionArchiveTable)
     .values({
-      submitterAddress: submitter,
-      proofHash,
+      ...upsertPayload,
       txHash,
-      severity,
-      description,
-      dramaType,
-      contentCid,
-      isProxy,
-      reward: verifiedArchive.reward,
-      chainId: verifiedArchive.chainId,
-      submittedAt,
-    } as any)
+    })
     .onConflictDoUpdate({
       target: ghostSubmissionArchiveTable.txHash,
-      set: {
-        submitterAddress: submitter,
-        proofHash,
-        severity,
-        description,
-        dramaType,
-        contentCid,
-        isProxy,
-        reward: verifiedArchive.reward,
-        chainId: verifiedArchive.chainId,
-        submittedAt,
-      } as any,
+      set: upsertPayload,
     })
-    .returning() as unknown as GhostSubmissionArchiveRow[];
+    .returning();
 
   res.status(201).json({
     submission: {

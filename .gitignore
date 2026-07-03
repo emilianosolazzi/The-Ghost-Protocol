@@ -9,8 +9,16 @@ out-tsc/
 
 # Environment files
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
+!.env.*.example
+
+# Replit artifacts
+.replit
+.replitignore
+**/.replit-artifact/
 
 # IDE
 .vscode/*
