@@ -1,4 +1,6 @@
-import { ethers } from "hardhat";
+import hardhat from "hardhat";
+
+const { ethers } = hardhat;
 import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 export interface TestFixtures {

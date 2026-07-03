@@ -17,6 +17,20 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 
   async function handleConnectWallet() {
+    if (wallet.isConnected && networkMismatch && config.chainId) {
+      try {
+        await wallet.switchChain(config.chainId);
+        toast({ title: "Network fixed", description: `Switched to chain ${config.chainId}.` });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Could not switch network",
+          description: error instanceof Error ? error.message : "Switch chain manually in your wallet.",
+        });
+      }
+      return;
+    }
+
     if (wallet.isConnected) {
       wallet.disconnect();
       return;
@@ -73,7 +87,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <Button variant={networkMismatch ? "destructive" : "outline"} onClick={handleConnectWallet} className="min-w-40">
                 <Wallet className="w-4 h-4" />
                 {networkMismatch
-                  ? "Wrong Network"
+                  ? "Fix Network"
                   : wallet.isConnected
                     ? formatWalletAddress(wallet.account)
                     : wallet.connectionType === "hardhat-dev"

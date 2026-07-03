@@ -4,7 +4,9 @@ import { useStorySnapshot, useSubmitEvidence, useUnlockPricePreview } from "@/ho
 import { useWallet } from "@/hooks/use-wallet";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { getGhostProtocolConfig } from "@/lib/ghost-protocol-config";
 import { formatEthAmount, formatGhostedAmount, getExplorerTransactionUrl } from "@/lib/ghost-protocol-client";
+import { deriveDeterministicProofHash } from "@/lib/proof-hash";
 import {
   fetchGhostSubmissionArchive,
   normaliseGhostSubmissionArchiveEntry,
@@ -17,7 +19,7 @@ import {
   AlertTriangle, CheckCircle2, Coins, Info, Copy, Database, ExternalLink, ImagePlus, X, Loader2
 } from "lucide-react";
 import { usePinataUpload } from "@/hooks/use-pinata-upload";
-import { getIpfsUrl } from "@/lib/pinata";
+import { getIpfsUri, getIpfsUrl, getPinataPublicGatewayUrl } from "@/lib/pinata";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -126,9 +128,18 @@ function mergeSubmissionRecords(...groups: GhostSubmissionArchiveEntry[][]) {
 export function Evidence() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { account, chainId, getWalletClient } = useWallet();
+  const {
+    account,
+    chainId,
+    connect,
+    switchChain,
+    getWalletClient,
+    isWalletAvailable,
+    connectionType,
+  } = useWallet();
   const { mutate: submitEvidence, isPending } = useSubmitEvidence();
   const pinata = usePinataUpload();
+  const protocolConfig = getGhostProtocolConfig();
   const [lastResult, setLastResult] = useState<{ reward: number; dramaLabel: string } | null>(null);
   const [localSubmissions, setLocalSubmissions] = useState<GhostSubmissionArchiveEntry[]>([]);
   const [remoteSubmissions, setRemoteSubmissions] = useState<GhostSubmissionArchiveEntry[]>([]);
@@ -192,6 +203,8 @@ export function Evidence() {
   const watchIsProxy  = form.watch("isProxy");
   const watchHash = form.watch("hash");
   const watchDramaType = form.watch("dramaType");
+  const watchDescription = form.watch("description");
+  const watchContentCid = form.watch("contentCid");
   const estimatedReward = watchIsProxy ? 0 : Math.min(watchWeight * receiptRewardMultiplier, maxGhostedPerSubmission);
   const mergedSubmissions = mergeSubmissionRecords(localSubmissions, remoteSubmissions);
   const remoteSubmissionKeys = new Set(remoteSubmissions.map((submission) => submission.txHash.toLowerCase()));
@@ -200,6 +213,9 @@ export function Evidence() {
   const unlockPricePreview = useUnlockPricePreview(watchHash.trim());
   const existingStory = storySnapshot.data;
   const isKnownProofHash = Boolean(existingStory && existingStory.evidence.timestamp > 0);
+  const hasValidProofHash = /^0x[a-fA-F0-9]{64}$/.test(watchHash.trim());
+  const networkMismatch = Boolean(protocolConfig.chainId && chainId && protocolConfig.chainId !== chainId);
+  const hasStoryContext = Boolean(watchDramaType || watchDescription?.trim() || watchContentCid?.trim());
 
   const clearLocalSubmissions = () => {
     writeLocalSubmissions([]);
@@ -219,6 +235,37 @@ export function Evidence() {
         variant: "destructive",
         title: "Copy failed",
         description: `Could not copy ${label.toLowerCase()} in this browser context.`,
+      });
+    }
+  }
+
+  async function handleConnectWallet() {
+    try {
+      await connect();
+      toast({ title: "Wallet connected", description: "You can now submit your receipt on-chain." });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Could not connect wallet",
+        description: error instanceof Error ? error.message : "Connect a wallet to continue.",
+      });
+    }
+  }
+
+  async function handleFixNetwork() {
+    if (!protocolConfig.chainId) {
+      toast({ variant: "destructive", title: "Missing chain config", description: "Set VITE_GHOST_PROTOCOL_CHAIN_ID first." });
+      return;
+    }
+
+    try {
+      await switchChain(protocolConfig.chainId);
+      toast({ title: "Network updated", description: "Wallet is now on the expected chain." });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Network switch failed",
+        description: error instanceof Error ? error.message : "Please switch chain manually in your wallet.",
       });
     }
   }
@@ -284,10 +331,22 @@ export function Evidence() {
   };
 
   const generateHash = () => {
-    const chars = "0123456789abcdef";
-    let h = "0x";
-    for (let i = 0; i < 64; i++) h += chars[Math.floor(Math.random() * chars.length)];
-    form.setValue("hash", h);
+    const values = form.getValues();
+    const deterministicHash = deriveDeterministicProofHash({
+      severity: values.weight,
+      description: values.description ?? "",
+      dramaType: values.dramaType ?? "general",
+      contentCid: values.contentCid ?? "",
+      isProxy: values.isProxy,
+      submitter: account ?? null,
+      salt: "",
+    });
+
+    form.setValue("hash", deterministicHash);
+    toast({
+      title: "Deterministic hash generated",
+      description: "Hash is now derived from severity, drama type, proxy flag, description, content CID, and connected submitter.",
+    });
   };
 
   return (
@@ -300,10 +359,69 @@ export function Evidence() {
         </div>
         <h1 className="text-4xl font-black mb-3">LOG YOUR RECEIPT</h1>
         <p className="text-muted-foreground font-mono text-sm max-w-2xl mx-auto leading-relaxed">
-          Turn one ignored moment into a contract event. The protocol records your proof hash, splits the fee, creates a locked story,
+          Turn one ignored moment into a contract event. The protocol records your receipt ID (proof hash), splits the fee, creates a locked story,
           and only pays <span className="text-primary font-bold">$GHOSTED</span> if the proof is direct.
           Each submission costs <span className="text-primary font-bold">{formatEthAmount(ghostProtocolUiConstants.receiptFeeEth, 4)} ETH</span>.
         </p>
+      </div>
+
+      <div className="ghost-panel ghost-gradient-border p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="ghost-label mb-2">First Time Here?</p>
+            <h2 className="text-2xl font-black tracking-tight">Quick Start In 4 Steps</h2>
+          </div>
+          <span className="rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs font-mono uppercase tracking-[0.18em] text-muted-foreground">
+            {account ? "Wallet Connected" : "Preview Mode"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div className={`ghost-panel-soft p-4 ${account ? "border border-primary/20" : ""}`}>
+            <p className="ghost-label mb-1">1. Connect Wallet</p>
+            <p className="text-muted-foreground">Needed only for the final on-chain submit. You can still fill the form without connecting.</p>
+          </div>
+          <div className={`ghost-panel-soft p-4 ${hasStoryContext ? "border border-primary/20" : ""}`}>
+            <p className="ghost-label mb-1">2. Add Context</p>
+            <p className="text-muted-foreground">Pick a drama tag and optional note/screenshot so the receipt is understandable later.</p>
+          </div>
+          <div className={`ghost-panel-soft p-4 ${hasValidProofHash && !isKnownProofHash ? "border border-primary/20" : ""}`}>
+            <p className="ghost-label mb-1">3. Generate Receipt ID</p>
+            <p className="text-muted-foreground">Use AUTO-GENERATE ID to create a valid unique proof hash from your form input.</p>
+          </div>
+          <div className={`ghost-panel-soft p-4 ${account && !networkMismatch ? "border border-primary/20" : ""}`}>
+            <p className="ghost-label mb-1">4. Submit On-Chain</p>
+            <p className="text-muted-foreground">Confirm wallet network, then submit and pay the fixed ETH fee.</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!account && (
+            <button
+              type="button"
+              onClick={handleConnectWallet}
+              className="inline-flex items-center gap-2 rounded-md border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-mono text-primary transition-colors hover:bg-primary/20"
+            >
+              CONNECT WALLET
+            </button>
+          )}
+
+          {account && networkMismatch && (
+            <button
+              type="button"
+              onClick={handleFixNetwork}
+              className="inline-flex items-center gap-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-mono text-amber-300 transition-colors hover:bg-amber-400/20"
+            >
+              FIX NETWORK
+            </button>
+          )}
+
+          {!isWalletAvailable && connectionType === "none" && (
+            <p className="text-xs font-mono text-muted-foreground">
+              No wallet detected. Install MetaMask/Rabby to submit, or continue in preview mode.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="ghost-panel ghost-gradient-border p-5 sm:p-6 space-y-4">
@@ -448,16 +566,16 @@ export function Evidence() {
                 <FormItem>
                   <div className="flex justify-between items-center mb-2">
                     <FormLabel className="font-mono text-xs text-muted-foreground flex items-center gap-2">
-                      <Fingerprint className="w-3 h-3" /> PROOF HASH
+                      <Fingerprint className="w-3 h-3" /> RECEIPT ID (PROOF HASH)
                     </FormLabel>
                     <button type="button" onClick={generateHash} className="text-xs font-mono text-primary hover:text-white transition-colors">
-                      GENERATE FOR ME
+                      AUTO-GENERATE ID
                     </button>
                   </div>
                   <FormControl>
-                    <Input placeholder="0x... (unique fingerprint of your evidence)" className="font-mono bg-background border-white/10 focus-visible:ring-primary/50" {...field} />
+                    <Input placeholder="0x... (unique ID for this receipt)" className="font-mono bg-background border-white/10 focus-visible:ring-primary/50" {...field} />
                   </FormControl>
-                  <p className="text-xs text-muted-foreground font-mono mt-1.5">Each hash can only be submitted once. If this proof already exists, the contract will reject the transaction.</p>
+                  <p className="text-xs text-muted-foreground font-mono mt-1.5">Each receipt ID can only be used once. If this ID already exists, submission is rejected.</p>
                   {watchHash.trim().length > 0 && (
                     <div className={`mt-3 rounded-xl border p-3 ${isKnownProofHash ? "border-destructive/20 bg-destructive/8" : watchHash.trim().match(/^0x[a-fA-F0-9]{64}$/) ? "border-primary/20 bg-primary/8" : "border-white/10 bg-white/[0.03]"}`}>
                       <p className="font-mono text-xs font-bold mb-1">
@@ -472,7 +590,7 @@ export function Evidence() {
                           ? "This proof hash already points to an on-chain story. Reusing it will fail, so generate a fresh unique fingerprint before signing."
                           : watchHash.trim().match(/^0x[a-fA-F0-9]{64}$/)
                             ? "The format is correct. The final success still depends on uniqueness and the wallet transaction completing."
-                            : "Use 0x plus 64 hex characters. The app can generate one for you if you just need a unique placeholder for testing."}
+                            : "Use 0x plus 64 hex characters. AUTO-GENERATE ID creates one from your current form inputs."}
                       </p>
                     </div>
                   )}
@@ -528,11 +646,15 @@ export function Evidence() {
                   <>
                     <p className="font-mono text-xs font-bold">ESTIMATED REWARD: <span className="text-primary">{estimatedReward.toLocaleString()} $GHOSTED</span></p>
                     <p className="font-mono text-xs text-muted-foreground mt-0.5">
-                      Formula: severity × {receiptRewardMultiplier.toLocaleString()}, capped at {maxGhostedPerSubmission.toLocaleString()}. This contract does not boost receipt rewards with credibility.
+                      Formula: severity × {receiptRewardMultiplier.toLocaleString()}, capped at {maxGhostedPerSubmission.toLocaleString()}.
                     </p>
                   </>
                 )}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-xs font-mono text-muted-foreground leading-relaxed">
+              Later in the app, anyone can place a truth stake (100 GHOSTED) on a story. Correct stake gets rewarded, incorrect stake gets penalized.
             </div>
 
             {(selectedDrama || unlockPricePreview.data || existingStory) && (
@@ -626,6 +748,40 @@ export function Evidence() {
                     <p className="font-mono text-xs font-bold text-primary">PINNED TO IPFS</p>
                     <p className="font-mono text-xs text-muted-foreground truncate mt-0.5">{pinata.state.cid}</p>
                     <p className="font-mono text-xs text-muted-foreground truncate">{pinata.state.file.name}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <a
+                        href={getIpfsUrl(pinata.state.cid)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-white/15 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:border-white/30 hover:text-white"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        OPEN GATEWAY
+                      </a>
+                      <a
+                        href={getPinataPublicGatewayUrl(pinata.state.cid)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-white/15 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:border-white/30 hover:text-white"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        OPEN PINATA
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (pinata.state.status !== "success") {
+                            return;
+                          }
+
+                          void copyToClipboard("IPFS URI", getIpfsUri(pinata.state.cid));
+                        }}
+                        className="inline-flex items-center gap-1 rounded border border-white/15 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:border-white/30 hover:text-white"
+                      >
+                        <Copy className="w-3 h-3" />
+                        COPY IPFS URI
+                      </button>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -776,6 +932,25 @@ export function Evidence() {
                           />
                         </a>
                         <p className="font-mono text-xs text-muted-foreground truncate max-w-xs">{submission.contentCid}</p>
+                        <div className="flex flex-wrap gap-2">
+                          <a
+                            href={getPinataPublicGatewayUrl(submission.contentCid)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded border border-white/15 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:border-white/30 hover:text-white"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            OPEN PINATA
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => void copyToClipboard("IPFS URI", getIpfsUri(submission.contentCid))}
+                            className="inline-flex items-center gap-1 rounded border border-white/15 px-2 py-1 text-[10px] font-mono text-muted-foreground transition-colors hover:border-white/30 hover:text-white"
+                          >
+                            <Copy className="w-3 h-3" />
+                            COPY IPFS URI
+                          </button>
+                        </div>
                       </div>
                     )}
 

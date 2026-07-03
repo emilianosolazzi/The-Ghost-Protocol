@@ -10,6 +10,15 @@ const ACCEPTED_TYPES = new Set([
 
 let sdk: PinataSDK | null = null;
 
+function normaliseGatewayBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "https://gateway.pinata.cloud";
+  }
+
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 function getPinata(): PinataSDK {
   if (!sdk) {
     const jwt = import.meta.env.VITE_PINATA_JWT as string | undefined;
@@ -44,6 +53,14 @@ export async function uploadFile(file: File): Promise<string> {
 
 export function getIpfsUrl(cid: string): string {
   const gateway = import.meta.env.VITE_PINATA_GATEWAY as string | undefined;
-  const base = gateway || "https://gateway.pinata.cloud";
+  const base = normaliseGatewayBaseUrl(gateway || "https://gateway.pinata.cloud");
   return `${base}/ipfs/${cid}`;
+}
+
+export function getIpfsUri(cid: string): string {
+  return `ipfs://${cid}`;
+}
+
+export function getPinataPublicGatewayUrl(cid: string): string {
+  return `https://gateway.pinata.cloud/ipfs/${cid}`;
 }

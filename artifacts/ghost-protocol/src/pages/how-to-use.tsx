@@ -35,7 +35,7 @@ export function HowToUse() {
           <div className="bg-card border border-white/5 rounded-xl p-6 space-y-3">
             <p className="text-muted-foreground leading-relaxed">
               GhostProtocol is a receipt ledger and story-unlock contract wired to a token called <span className="text-white font-semibold">$GHOSTED</span>.
-              The core action is <span className="text-white font-semibold">submitEvidence</span>: store a unique proof hash,
+              The core action is <span className="text-white font-semibold">submitEvidence</span>: store a unique receipt ID (proof hash),
               pay a fixed ETH fee, and optionally earn a direct $GHOSTED payout.
             </p>
             <p className="text-muted-foreground leading-relaxed">
@@ -118,7 +118,7 @@ export function HowToUse() {
         <div className="flex flex-col gap-3">
           <FlagExplainer
             label="PROOF HASH"
-            meaning="A 32-byte unique key. The contract rejects duplicates, so each evidence item can only be submitted once."
+            meaning="Think of this as a receipt ID. It is a 32-byte unique key. The contract rejects duplicates, so each evidence item can only be submitted once."
             icon="#"
           />
           <FlagExplainer
@@ -178,7 +178,7 @@ export function HowToUse() {
           <Step
             number={2}
             title="Get your proof hash"
-            desc='Hit "Generate For Me" and the app creates a unique hash for you. This is your anonymous proof — no personal info attached, just a cryptographic fingerprint. Each hash can only be submitted once.'
+            desc='Hit "Generate For Me" and the app creates a unique receipt ID for you. It is anonymous and contains no personal info. Each ID can only be submitted once.'
           />
           <Step
             number={3}
@@ -242,8 +242,8 @@ export function HowToUse() {
         <h2 className="text-3xl font-black">How does asserting truth work?</h2>
         <div className="bg-card border border-primary/20 rounded-xl p-6 flex flex-col gap-4">
           <p className="text-muted-foreground leading-relaxed">
-            Truth staking is a separate path from direct evidence submission. Anyone can call <span className="text-white font-semibold">assertTruth</span>
-            on an existing proof hash and stake <span className="text-white font-semibold">{formatTokenAmount(ghostProtocolUiConstants.truthAssertionStake)} GHOSTED</span>.
+            Truth staking is separate from receipt submission. Anyone can call <span className="text-white font-semibold">assertTruth</span>
+            on an existing receipt and put <span className="text-white font-semibold">{formatTokenAmount(ghostProtocolUiConstants.truthAssertionStake)} GHOSTED</span> at risk.
           </p>
           <p className="text-muted-foreground leading-relaxed">
             Later, the oracle resolves each truth stake. A correct call earns <span className="text-primary font-bold">{formatTokenAmount(ghostProtocolUiConstants.truthWinReward)} GHOSTED</span>

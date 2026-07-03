@@ -2,6 +2,7 @@ import { Router, type IRouter, type NextFunction } from "express";
 import { desc, eq } from "drizzle-orm";
 import { verifyMessage, type Hex } from "viem";
 import { db, ghostSubmissionArchiveTable } from "@workspace/db";
+import { buildGhostSubmissionArchiveMessage } from "@workspace/ghost-contract";
 import {
   GhostArchiveVerificationError,
   verifyGhostArchiveSubmissionTransaction,
@@ -29,35 +30,6 @@ function parseHash(value: unknown) {
 
 function parseSignature(value: unknown) {
   return typeof value === "string" && signaturePattern.test(value) ? (value as Hex) : null;
-}
-
-function buildGhostSubmissionArchiveMessage(entry: {
-  submitter: string;
-  proofHash: string;
-  txHash: string;
-  severity: number;
-  description: string;
-  dramaType: string;
-  contentCid: string;
-  isProxy: boolean;
-  reward: number;
-  chainId: number | null;
-  submittedAt: number;
-}) {
-  return `GhostProtocol archive submission\n${JSON.stringify({
-    version: 1,
-    submitter: entry.submitter,
-    proofHash: entry.proofHash,
-    txHash: entry.txHash,
-    severity: entry.severity,
-    description: entry.description,
-    dramaType: entry.dramaType,
-    contentCid: entry.contentCid,
-    isProxy: entry.isProxy,
-    reward: entry.reward,
-    chainId: entry.chainId,
-    submittedAt: entry.submittedAt,
-  })}`;
 }
 
 router.get("/ghost-archive/submissions", async (req, res): Promise<void> => {

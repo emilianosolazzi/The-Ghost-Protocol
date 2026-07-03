@@ -1,11 +1,13 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import hardhat from "hardhat";
 import {
   deployFixtures,
   TEST_CONSTANTS,
   generateProofHash,
   generateDramaType,
 } from "./fixtures/common";
+
+const { ethers } = hardhat;
 
 describe("GhostProtocol: Evidence Submission", function () {
   const RECEIPT_FEE = TEST_CONSTANTS.RECEIPT_FEE;

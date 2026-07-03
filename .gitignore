@@ -38,6 +38,7 @@ cache/
 artifacts/ghost-protocol/dist/
 lib/ghost-contract/cache/
 lib/ghost-contract/artifacts/deployment-hardhat-local.json
+lib/ghost-contract/deployment-localhost.json
 
 # Misc
 coverage/

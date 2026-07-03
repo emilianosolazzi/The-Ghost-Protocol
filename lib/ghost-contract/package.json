@@ -10,9 +10,14 @@
     "build": "node ./scripts/compile.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "hardhat test --config ./hardhat.config.cjs ./test/ghost-protocol.smoke.cjs",
+    "test:ts": "node ./scripts/run-ts-tests.mjs",
+    "test:ci": "corepack pnpm run test && corepack pnpm run test:ts",
     "hardhat:node": "hardhat node",
     "hardhat:deploy": "hardhat run --config ./hardhat.config.cjs scripts/hardhat/deploy.cjs --network localhost",
-    "hardhat:test:localhost": "hardhat test --config ./hardhat.config.cjs --network localhost ./test/ghost-protocol.smoke.cjs"
+    "hardhat:test:localhost": "hardhat test --config ./hardhat.config.cjs --network localhost ./test/ghost-protocol.smoke.cjs",
+    "fixtures:canonicalization": "tsx ./scripts/canonicalization-fixtures.ts",
+    "e2e:simulate": "node ./scripts/e2e-simulate.mjs",
+    "e2e:high-roi": "node ./scripts/e2e-high-roi-tests.mjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
@@ -26,6 +31,7 @@
     "hardhat": "^2.21.0",
     "mocha": "^10.2.0",
     "ts-node": "^10.9.2",
+    "tsx": "catalog:",
     "typescript": "^5.9"
   }
 }

@@ -1,6 +1,8 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import hardhat from "hardhat";
 import { deployFixtures, TEST_CONSTANTS } from "./fixtures/common";
+
+const { ethers } = hardhat;
 
 describe("GhostProtocol: Constructor & Admin Controls", function () {
   describe("Constructor", function () {

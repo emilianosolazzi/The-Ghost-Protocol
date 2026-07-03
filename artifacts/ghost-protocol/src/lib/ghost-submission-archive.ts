@@ -1,25 +1,15 @@
 import { getAddress, isAddress, type Address, type Hash, type Hex, type WalletClient } from "viem";
 import { getGhostProtocolConfig } from "@/lib/ghost-protocol-config";
+import {
+  buildGhostSubmissionArchiveMessage as buildSharedGhostSubmissionArchiveMessage,
+  canonicalizeGhostSubmissionArchiveEntry,
+  type GhostSubmissionArchiveCanonicalPayload,
+} from "@workspace/ghost-contract";
 
 export type GhostSubmissionArchiveEntry = {
   submitter: Address;
   proofHash: Hex;
   txHash: Hash;
-  severity: number;
-  description: string;
-  dramaType: string;
-  contentCid: string;
-  isProxy: boolean;
-  reward: number;
-  chainId: number | null;
-  submittedAt: number;
-};
-
-type GhostSubmissionArchivePayload = {
-  version: 1;
-  submitter: string;
-  proofHash: string;
-  txHash: string;
   severity: number;
   description: string;
   dramaType: string;
@@ -91,25 +81,12 @@ export function normaliseGhostSubmissionArchiveEntry(value: unknown): GhostSubmi
   };
 }
 
-function canonicaliseGhostSubmissionArchiveEntry(entry: GhostSubmissionArchiveEntry): GhostSubmissionArchivePayload {
-  return {
-    version: 1,
-    submitter: entry.submitter.toLowerCase(),
-    proofHash: entry.proofHash.toLowerCase(),
-    txHash: entry.txHash.toLowerCase(),
-    severity: Math.trunc(entry.severity),
-    description: entry.description,
-    dramaType: entry.dramaType.trim().length > 0 ? entry.dramaType.trim() : "general",
-    contentCid: entry.contentCid.trim(),
-    isProxy: entry.isProxy,
-    reward: entry.reward,
-    chainId: entry.chainId === null ? null : Math.trunc(entry.chainId),
-    submittedAt: Math.trunc(entry.submittedAt),
-  };
+function canonicaliseGhostSubmissionArchiveEntry(entry: GhostSubmissionArchiveEntry): GhostSubmissionArchiveCanonicalPayload {
+  return canonicalizeGhostSubmissionArchiveEntry(entry) as GhostSubmissionArchiveCanonicalPayload;
 }
 
 export function buildGhostSubmissionArchiveMessage(entry: GhostSubmissionArchiveEntry) {
-  return `GhostProtocol archive submission\n${JSON.stringify(canonicaliseGhostSubmissionArchiveEntry(entry))}`;
+  return buildSharedGhostSubmissionArchiveMessage(entry);
 }
 
 function getGhostArchiveApiUrl() {

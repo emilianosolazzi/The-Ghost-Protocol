@@ -1,10 +1,12 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import hardhat from "hardhat";
 import {
   deployFixtures,
   TEST_CONSTANTS,
   generateProofHash,
 } from "./fixtures/common";
+
+const { ethers } = hardhat;
 
 describe("GhostProtocol: Truth Assertion & Resolution", function () {
   const RECEIPT_FEE = TEST_CONSTANTS.RECEIPT_FEE;
