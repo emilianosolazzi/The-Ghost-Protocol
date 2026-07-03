@@ -1,5 +1,4 @@
 import { defineConfig } from "drizzle-kit";
-import path from "path";
 import "dotenv/config"; // ← Recommended: load .env early
 
 if (!process.env.DATABASE_URL) {
@@ -7,8 +6,8 @@ if (!process.env.DATABASE_URL) {
 }
 
 export default defineConfig({
-  // Schema path (your current one is fine, but we can make it more flexible)
-  schema: path.join(__dirname, "./src/schema/index.ts"),
+  // Use a glob so drizzle-kit resolves schema files consistently on Windows.
+  schema: "./src/schema/*.ts",
 
   // Where migrations will be generated (highly recommended to specify)
   out: "./drizzle",

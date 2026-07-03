@@ -6,7 +6,11 @@
     "preinstall": "node -e \"const user = process.env.npm_config_user_agent; if (!user || !user.includes('pnpm/')) { console.error('Use pnpm instead'); process.exit(1); }\"",
     "build": "corepack pnpm run typecheck && corepack pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "corepack pnpm run typecheck:libs && corepack pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "corepack pnpm run typecheck:libs && corepack pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:push": "corepack pnpm --filter @workspace/db run push"
   },
   "private": true,
   "devDependencies": {

@@ -54,7 +54,7 @@ async function main() {
     deployedAt: new Date().toISOString(),
   };
 
-  const outputPath = path.join(__dirname, "../../../artifacts/deployment-localhost.json");
+  const outputPath = path.join(__dirname, "../../deployment-localhost.json");
   fs.writeFileSync(outputPath, JSON.stringify(deploymentInfo, null, 2));
   console.log(`\nDeployment info saved to: ${outputPath}`);
 

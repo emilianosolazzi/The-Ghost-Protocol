@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "hardhat test --config ./hardhat.config.cjs ./test/ghost-protocol.smoke.cjs",
     "hardhat:node": "hardhat node",
-    "hardhat:deploy": "hardhat run --config ./hardhat.config.cjs scripts/hardhat/deploy.ts --network localhost"
+    "hardhat:deploy": "hardhat run --config ./hardhat.config.cjs scripts/hardhat/deploy.cjs --network localhost",
+    "hardhat:test:localhost": "hardhat test --config ./hardhat.config.cjs --network localhost ./test/ghost-protocol.smoke.cjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
